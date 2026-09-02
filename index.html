@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CryptoTA — Technical Analysis</title>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+    <!-- Left panel: pairs list (~15%) -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <div class="brand">
+                <span class="brand-mark">▤</span>
+                <span class="brand-name">CryptoTA</span>
+            </div>
+            <button class="icon-btn" id="toggleSidebar" title="Hide panel">◀</button>
+        </div>
+
+        <div class="search-box">
+            <span class="search-icon">⌕</span>
+            <input type="text" id="searchInput" placeholder="Search pair..." autocomplete="off">
+        </div>
+
+        <div class="quote-filter">
+            <button class="quote-btn active" data-quote="USDT">USDT</button>
+            <button class="quote-btn" data-quote="BTC">BTC</button>
+            <button class="quote-btn" data-quote="ETH">ETH</button>
+            <button class="quote-btn" data-quote="BNB">BNB</button>
+        </div>
+
+        <div class="pair-list-header">
+            <span>Pair</span>
+            <span>Price</span>
+            <span>24h %</span>
+        </div>
+
+        <div class="pair-list" id="pairList">
+            <div class="loading">Loading...</div>
+        </div>
+
+        <div class="sidebar-foot">
+            <span class="status-dot"></span>
+            <span class="status-text">connected</span>
+        </div>
+    </aside>
+
+    <!-- Show panel button (when hidden) -->
+    <button class="show-sidebar-btn" id="showSidebarBtn" title="Show panel">▶</button>
+
+    <!-- Main area: chart (~85%) -->
+    <main class="main">
+        <!-- Top bar: symbol + timeframe + indicators -->
+        <header class="topbar">
+            <div class="symbol-info">
+                <span class="symbol-name" id="symbolName">BTC/USDT</span>
+                <span class="symbol-price" id="symbolPrice">—</span>
+                <span class="symbol-change" id="symbolChange">—</span>
+            </div>
+
+            <div class="topbar-controls">
+                <div class="timeframes" id="timeframes">
+                    <button class="tf-btn" data-tf="1m">1m</button>
+                    <button class="tf-btn" data-tf="5m">5m</button>
+                    <button class="tf-btn" data-tf="15m">15m</button>
+                    <button class="tf-btn" data-tf="1h">1h</button>
+                    <button class="tf-btn active" data-tf="4h">4h</button>
+                    <button class="tf-btn" data-tf="1d">1d</button>
+                    <button class="tf-btn" data-tf="1w">1w</button>
+                </div>
+
+                <button class="indicator-btn" id="addIndicatorBtn">
+                    <span>+</span> Indicator
+                </button>
+
+                <button class="indicator-btn strategy-btn" id="addStrategyBtn" title="Add strategy">
+                    <span>⌁</span> Strategy
+                </button>
+
+                <div class="chart-type" id="chartType">
+                    <button class="ct-btn active" data-type="candles" title="Candles">▮</button>
+                    <button class="ct-btn" data-type="line" title="Line">∿</button>
+                    <button class="ct-btn" data-type="area" title="Area">◣</button>
+                </div>
+
+                <button class="tier-badge" id="tierBadge" data-tier="free" title="Click to upgrade">FREE</button>
+                <button class="auth-button" id="authButton" data-auth="false" title="Sign in to sync your settings">Sign in</button>
+            </div>
+        </header>
+
+        <!-- Active indicators chips -->
+        <div class="active-indicators" id="activeIndicators"></div>
+
+        <!-- Chart area -->
+        <div class="chart-wrapper" id="chartWrapper">
+            <canvas id="chartCanvas"></canvas>
+            <div class="chart-overlay" id="chartOverlay"></div>
+            <div class="crosshair-info" id="crosshairInfo" style="display:none;">
+                <div class="ci-row"><span>O</span><b id="ciO">—</b></div>
+                <div class="ci-row"><span>H</span><b id="ciH">—</b></div>
+                <div class="ci-row"><span>L</span><b id="ciL">—</b></div>
+                <div class="ci-row"><span>C</span><b id="ciC">—</b></div>
+                <div class="ci-row"><span>V</span><b id="ciV">—</b></div>
+            </div>
+            <div class="chart-loading" id="chartLoading" style="display:none;">Loading data...</div>
+        </div>
+
+        <!-- Bottom bar: volume + status -->
+        <footer class="bottombar">
+            <div class="bb-left">
+                <span class="bb-label">Indicators:</span>
+                <span class="bb-count" id="indicatorCount">0</span>
+            </div>
+            <div class="bb-right">
+                <button class="bb-btn" id="resetChart" title="Reset zoom">⌑ Reset</button>
+                <button class="bb-btn danger" id="clearIndicators" title="Remove all indicators">✕ Clear indicators</button>
+            </div>
+        </footer>
+    </main>
+
+    <!-- Indicator picker modal -->
+    <div class="modal-overlay" id="indicatorModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-head">
+                <h2>Add indicator</h2>
+                <button class="icon-btn" id="closeModal">✕</button>
+            </div>
+            <div class="modal-search">
+                <input type="text" id="indicatorSearch" placeholder="Search indicator...">
+            </div>
+            <div class="indicator-categories" id="indicatorCategories">
+                <!-- JS-injected -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Strategy picker modal -->
+    <div class="modal-overlay" id="strategyModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-head">
+                <h2>Add strategy</h2>
+                <button class="icon-btn" id="closeStrategyModal">✕</button>
+            </div>
+            <div class="modal-search">
+                <input type="text" id="strategySearch" placeholder="Search strategy...">
+            </div>
+            <div class="indicator-categories" id="strategyCategories">
+                <!-- JS-injected -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Active strategies summary panel (top-right over chart) -->
+    <div class="strategy-panel" id="strategyPanel" style="display:none;">
+        <div class="strategy-panel-head" title="Drag to move">
+            <span class="strategy-panel-title">⌁ Strategies</span>
+            <button class="icon-btn small" id="hideStrategyPanel" title="Hide panel">−</button>
+        </div>
+        <div class="strategy-panel-list" id="strategyPanelList"></div>
+    </div>
+
+    <!-- Show strategies panel button -->
+    <button class="show-strategy-panel-btn" id="showStrategyPanelBtn" style="display:none;" title="Show strategies">⌁</button>
+
+    <!-- Checkout modal — crypto payment flow -->
+    <div class="modal-overlay" id="checkoutModal" style="display:none;">
+        <div class="modal checkout-modal">
+            <div class="modal-head">
+                <h2 id="checkoutTitle">Pay with crypto</h2>
+                <button class="icon-btn" id="closeCheckoutModal">✕</button>
+            </div>
+
+            <!-- Step 1: Choose currency (if not pre-selected) -->
+            <div id="checkoutStepChoose" style="display:none;">
+                <p class="upgrade-subtitle">Choose a cryptocurrency to pay with</p>
+                <div class="currency-grid" id="checkoutCurrencies">
+                    <!-- JS-injected buttons -->
+                </div>
+            </div>
+
+            <!-- Step 2: Show QR + address + status -->
+            <div id="checkoutStepPay" style="display:none;">
+                <p class="upgrade-subtitle">
+                    Send exactly <strong id="checkoutAmount">—</strong>
+                    to the address below. Your license activates automatically once the payment is confirmed.
+                </p>
+                <div class="checkout-grid">
+                    <div class="checkout-qr">
+                        <img id="checkoutQr" alt="QR code" />
+                    </div>
+                    <div class="checkout-info">
+                        <div class="checkout-row">
+                            <span class="checkout-label">Currency</span>
+                            <span class="checkout-value" id="checkoutCurrency">—</span>
+                        </div>
+                        <div class="checkout-row">
+                            <span class="checkout-label">Plan</span>
+                            <span class="checkout-value" id="checkoutPlan">—</span>
+                        </div>
+                        <div class="checkout-row">
+                            <span class="checkout-label">Status</span>
+                            <span class="checkout-value" id="checkoutStatus">—</span>
+                        </div>
+                        <div class="checkout-address-row">
+                            <span class="checkout-label">Address</span>
+                            <div class="checkout-address-wrap">
+                                <code class="checkout-address" id="checkoutAddress">—</code>
+                                <button class="icon-btn small" id="checkoutCopyBtn" title="Copy address">⧉</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <p class="checkout-footnote">
+                    The page will update automatically once your payment is received.
+                </p>
+            </div>
+
+            <!-- Step 3: Success -->
+            <div id="checkoutStepDone" style="display:none;">
+                <p class="upgrade-subtitle">
+                    ✓ Payment received. Your <strong id="checkoutDonePlan">license</strong> is now active.
+                </p>
+                <button class="auth-btn-primary" id="checkoutDoneBtn">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast" style="display:none;"></div>
+
+    <!-- Upgrade modal -->
+    <div class="modal-overlay" id="upgradeModal" style="display:none;">
+        <div class="modal upgrade-modal">
+            <div class="modal-head">
+                <h2>Upgrade</h2>
+                <button class="icon-btn" id="closeUpgradeModal">✕</button>
+            </div>
+            <p class="upgrade-subtitle">Pay in BTC, ETH, USDT, or 200+ other cryptocurrencies. No card needed.</p>
+            <div class="tier-cards" id="upgradeTierList">
+                <!-- JS-injected -->
+            </div>
+            <div class="upgrade-footnote">
+                Payments processed by NOWPayments. CryptoTA never sees your wallet keys.
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth modal -->
+    <div class="modal-overlay" id="authModal" style="display:none;">
+        <div class="modal auth-modal">
+            <div class="modal-head">
+                <h2 id="authModalTitle">Sign in</h2>
+                <button class="icon-btn" id="closeAuthModal">✕</button>
+            </div>
+
+            <div id="authUserBlock" style="display:none;">
+                <div class="auth-user-info">
+                    <div class="auth-user-avatar" data-avatar>D</div>
+                    <div>
+                        <div data-user-name class="auth-user-name">—</div>
+                        <div data-user-email class="auth-user-email">—</div>
+                    </div>
+                </div>
+                <button class="auth-btn-secondary" id="logoutBtn">Sign out</button>
+            </div>
+
+            <div id="authFormBlock">
+                <div class="auth-social">
+                    <button class="auth-btn-google" id="googleSignInBtn" type="button">
+                        <span>G</span> Continue with Google
+                    </button>
+                    <button class="auth-btn-apple" id="appleSignInBtn" type="button">
+                        <span></span> Continue with Apple
+                    </button>
+                </div>
+                <div class="auth-divider"><span>or</span></div>
+
+                <form class="auth-form" id="loginForm" autocomplete="on">
+                    <input type="email" name="email" placeholder="Email" required autocomplete="email">
+                    <input type="password" name="password" placeholder="Password" required autocomplete="current-password">
+                    <button type="submit" class="auth-btn-primary">Sign in</button>
+                </form>
+
+                <form class="auth-form" id="registerForm" style="display:none;" autocomplete="on">
+                    <input type="email" name="email" placeholder="Email" required autocomplete="email">
+                    <input type="password" name="password" placeholder="Password (min 8 chars)" required minlength="8" autocomplete="new-password">
+                    <button type="submit" class="auth-btn-primary">Create account</button>
+                </form>
+
+                <div class="auth-error" id="authError"></div>
+                <div class="auth-toggle">
+                    <span id="authToggleText">Don't have an account?</span>
+                    <a href="#" id="toggleToRegister">Sign up</a>
+                    <a href="#" id="toggleToLogin" style="display:none;">Sign in</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/binance.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/license.js"></script>
+    <script src="js/session.js"></script>
+    <script src="js/indicators.js"></script>
+    <script src="js/strategies.js"></script>
+    <script src="js/chart.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
