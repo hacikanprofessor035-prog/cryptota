@@ -67,8 +67,8 @@ export async function createApp() {
     return app;
 }
 
-export function startServer() {
-    const app = createApp();
+export async function startServer() {
+    const app = await createApp();
     const server = app.listen(config.port, () => {
         console.log(`[server] listening on http://localhost:${config.port}`);
         console.log(`[server] NOWPayments: ${config.nowpayments.apiKey ? 'configured' : 'NOT configured (payments will fail)'}`);
@@ -91,5 +91,8 @@ export function startServer() {
 // Start the server only when run directly (not when imported)
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
-    startServer();
+    startServer().catch(err => {
+        console.error('[server] failed to start:', err);
+        process.exit(1);
+    });
 }
