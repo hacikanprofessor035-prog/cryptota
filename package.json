@@ -1,0 +1,9 @@
+{
+  "name": "cryptota-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "cd server && npm install && npm start",
+    "build": "cd server && npm install"
+  }
+}
