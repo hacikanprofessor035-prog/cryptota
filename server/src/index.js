@@ -12,9 +12,9 @@ import { licenseRouter } from './routes/license.js';
 import { paymentsRouter, PRICING } from './routes/payments.js';
 import { webhooksRouter } from './routes/webhooks.js';
 
-export function createApp() {
+export async function createApp() {
     // Initialise database (runs migrations)
-    getDb();
+    await getDb();
 
     const app = express();
 

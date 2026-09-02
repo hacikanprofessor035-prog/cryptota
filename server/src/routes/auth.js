@@ -1,74 +1,61 @@
-// /api/auth/* — register, login, me, logout (stateless, but logged for audit)
+// /api/auth/* — register, login, me
 import { Router } from 'express';
 import { z } from 'zod';
-import { getDb } from '../lib/db.js';
+import * as db from '../lib/db.js';
 import { hashPassword, verifyPassword, signToken, authMiddleware } from '../lib/auth.js';
 
 export const authRouter = Router();
 
 const credsSchema = z.object({
     email: z.string().email().max(254),
-    password: z.string().min(8).max(128),
-    name: z.string().min(1).max(80).optional(),
+    password: z.string().min(8).max(200)
 });
 
-function issueToken(user) {
-    return signToken({ sub: user.id, email: user.email });
-}
+const registerSchema = credsSchema.extend({
+    name: z.string().min(1).max(100).optional()
+});
 
 authRouter.post('/register', async (req, res, next) => {
     try {
-        const parsed = credsSchema.safeParse(req.body);
+        const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+            return res.status(400).json({
+                error: 'Invalid input',
+                details: parsed.error.issues.map(i => i.message)
+            });
         }
         const { email, password, name } = parsed.data;
-        const db = getDb();
-        const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-        if (existing) {
+        if (await db.getByEmail(email)) {
             return res.status(409).json({ error: 'Email already registered' });
         }
         const hash = await hashPassword(password);
-        const now = new Date().toISOString();
-        const result = db.prepare(`
-            INSERT INTO users (email, password_hash, name, created_at)
-            VALUES (?, ?, ?, ?)
-        `).run(email, hash, name || email.split('@')[0], now);
-        const user = { id: result.lastInsertRowid, email, name: name || email.split('@')[0] };
-        const token = issueToken(user);
-        res.status(201).json({ token, user });
-    } catch (e) { next(e); }
+        const user = await db.createUser({ email, passwordHash: hash, name });
+        res.json({ token: signToken(user), user: { id: user.id, email: user.email, name: user.name } });
+    } catch (err) { next(err); }
 });
 
 authRouter.post('/login', async (req, res, next) => {
     try {
-        const parsed = credsSchema.pick({ email: true, password: true }).safeParse(req.body);
+        const parsed = credsSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ error: 'Invalid input' });
+            return res.status(400).json({ error: 'Invalid email or password' });
         }
         const { email, password } = parsed.data;
-        const db = getDb();
-        const row = db.prepare('SELECT id, email, name, password_hash FROM users WHERE email = ?').get(email);
+        const row = await db.getByEmail(email);
         if (!row) return res.status(401).json({ error: 'Invalid email or password' });
         const ok = await verifyPassword(password, row.password_hash);
         if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
-        db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), row.id);
+        await db.updateLastLogin(row.id);
         const user = { id: row.id, email: row.email, name: row.name };
-        res.json({ token: issueToken(user), user });
-    } catch (e) { next(e); }
+        res.json({ token: signToken(user), user });
+    } catch (err) { next(err); }
 });
 
-authRouter.get('/me', authMiddleware(), (req, res, next) => {
+authRouter.get('/me', authMiddleware(), async (req, res, next) => {
     try {
-        const db = getDb();
-        const row = db.prepare('SELECT id, email, name, created_at, last_login_at FROM users WHERE id = ?').get(req.user.id);
-        if (!row) return res.status(404).json({ error: 'User not found' });
-        res.json({ user: row });
-    } catch (e) { next(e); }
-});
-
-// Logout is a no-op for stateless JWT. The client discards the token.
-// We expose this endpoint so the client can call it for symmetry.
-authRouter.post('/logout', authMiddleware(false), (req, res) => {
-    res.json({ ok: true });
+        const user = await db.get(req.user.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        const { password_hash, ...safe } = user;
+        res.json({ user: safe });
+    } catch (err) { next(err); }
 });

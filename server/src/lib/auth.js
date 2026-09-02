@@ -14,10 +14,13 @@ export async function verifyPassword(plain, hash) {
     return bcrypt.compare(plain, hash);
 }
 
-export function signToken(payload) {
-    return jwt.sign(payload, config.jwt.secret, {
-        expiresIn: config.jwt.expiresIn,
-    });
+export function signToken(user) {
+    // Standard JWT claims: sub = user id, plus our extras
+    return jwt.sign(
+        { sub: user.id, email: user.email, name: user.name },
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn }
+    );
 }
 
 export function verifyToken(token) {
@@ -34,7 +37,12 @@ export function authMiddleware(required = true) {
         }
         try {
             const decoded = verifyToken(match[1]);
-            req.user = { id: decoded.sub, email: decoded.email };
+            // JWT spec: sub is a string. Convert to number for our SQL queries.
+            req.user = {
+                id: Number(decoded.sub),
+                email: decoded.email,
+                name: decoded.name
+            };
             next();
         } catch (e) {
             if (required) return res.status(401).json({ error: 'Invalid or expired token' });

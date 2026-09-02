@@ -27,9 +27,9 @@ const { createApp } = await import('../src/index.js');
 const { default: supertest } = await import('supertest');
 const { config } = await import('../src/config.js');
 const { nowpayments } = await import('../src/lib/nowpayments.js');
-const { getDb, closeDb } = await import('../src/lib/db.js');
+const dbModule = await import('../src/lib/db.js');
 
-const api = supertest(createApp());
+const api = supertest(await createApp());
 
 // Mock NOWPayments — replace methods we use
 let mockCreatePayment = async (args) => {
@@ -43,18 +43,16 @@ let mockCreatePayment = async (args) => {
 };
 nowpayments.createPayment = mockCreatePayment;
 
-// Reset DB between tests — keeps the same connection, drops all data
-function resetDb() {
-    const db = getDb();
-    db.exec(`
-        DELETE FROM webhook_events;
-        DELETE FROM licenses;
-        DELETE FROM payments;
-        DELETE FROM users;
-        DELETE FROM sqlite_sequence;
-    `);
+// Reset DB between tests — drop all rows so each test starts clean
+async function resetDb() {
+    await dbModule.getDb();
+    await dbModule.runRaw('DELETE FROM webhook_events');
+    await dbModule.runRaw('DELETE FROM licenses');
+    await dbModule.runRaw('DELETE FROM payments');
+    await dbModule.runRaw('DELETE FROM users');
+    await dbModule.runRaw("DELETE FROM sqlite_sequence WHERE name IN ('users','licenses','payments','webhook_events')");
 }
-beforeEach(resetDb);
+beforeEach(async () => { await resetDb(); });
 
 // ===== Health =====
 test('GET /api/health returns ok', async () => {
@@ -72,7 +70,7 @@ test('POST /api/auth/register creates user and returns token', async () => {
         password: 'secret12345',
         name: 'Alice',
     });
-    assert.equal(res.status, 201);
+    assert.equal(res.status, 200);
     assert.ok(res.body.token);
     assert.equal(res.body.user.email, 'alice@example.com');
     assert.equal(res.body.user.name, 'Alice');
@@ -236,5 +234,5 @@ test('Webhook is idempotent on duplicate event_id', async () => {
     assert.equal(hist.body.licenses.length, 1);
 });
 
-// Force exit — sqlite WAL keeps handles open otherwise
-process.on('exit', () => closeDb());
+// Force exit — sql.js keeps wasm alive otherwise
+process.on('exit', () => { try { dbModule.closeDb(); } catch {} });

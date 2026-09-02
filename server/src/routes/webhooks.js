@@ -4,7 +4,7 @@
 //   - Idempotent: duplicate event_id is silently ignored
 //   - Provider is the source of truth (we trust their status field)
 import { Router } from 'express';
-import { getDb } from '../lib/db.js';
+import * as db from '../lib/db.js';
 import { nowpayments } from '../lib/nowpayments.js';
 import { config } from '../config.js';
 import { PRICING } from './payments.js';
@@ -24,17 +24,18 @@ const STATUS_MAP = {
     expired: 'expired',
 };
 
-function activateLicense(db, userId, tier) {
+async function activateLicense(userId, tier) {
     const pricing = PRICING[tier];
     if (!pricing) throw new Error(`Unknown tier: ${tier}`);
     const now = new Date();
     const expiresAt = pricing.durationDays
         ? new Date(now.getTime() + pricing.durationDays * 86400_000).toISOString()
         : null;
-    db.prepare(`
-        INSERT INTO licenses (user_id, tier, activated_at, expires_at, source)
-        VALUES (?, ?, ?, ?, 'nowpayments')
-    `).run(userId, tier, now.toISOString(), expiresAt);
+    await db.insertLicense({
+        userId, tier,
+        expiresAt,
+        source: 'nowpayments'
+    });
     return { activatedAt: now.toISOString(), expiresAt };
 }
 
@@ -82,14 +83,12 @@ webhooksRouter.post(
             return res.status(400).send('invalid json');
         }
 
-        const db = getDb();
-
         // 2. Idempotency — if we've seen this event_id, ACK and skip.
         if (eventId) {
-            const existing = db.prepare(
-                'SELECT id FROM webhook_events WHERE provider = ? AND event_id = ?'
-            ).get('nowpayments', eventId);
-            if (existing) {
+            const { duplicate } = await db.recordWebhookEvent({
+                provider: 'nowpayments', eventId, payload
+            });
+            if (duplicate) {
                 return res.status(200).send('ok (duplicate)');
             }
         }
@@ -102,45 +101,34 @@ webhooksRouter.post(
             return res.status(400).send('missing order_id');
         }
 
-        const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(internalId);
+        const payment = await db.getPayment(internalId);
         if (!payment) {
             console.warn(`[webhook] No payment with id ${internalId}`);
             return res.status(404).send('unknown payment');
         }
 
-        // 4. Persist the event (idempotency record) inside a transaction with
-        //    the status update so we never lose an event.
-        const now = new Date().toISOString();
+        // 4. Update status + activate license on 'finished'
         const newStatus = STATUS_MAP[payload.payment_status] || payment.status;
 
         try {
-            db.transaction(() => {
-                if (eventId) {
-                    db.prepare(`
-                        INSERT INTO webhook_events (provider, event_id, payload, received_at, processed_at)
-                        VALUES ('nowpayments', ?, ?, ?, ?)
-                    `).run(eventId, JSON.stringify(payload), now, now);
-                }
-                db.prepare('UPDATE payments SET status = ?, updated_at = ? WHERE id = ?')
-                    .run(newStatus, now, internalId);
+            await db.updatePayment(internalId, { status: newStatus });
 
-                // 5. Activate license on successful payment
-                if (newStatus === 'finished' && payment.status !== 'finished') {
-                    if (!payment.user_id) {
-                        throw new Error('Payment has no user_id — cannot activate');
-                    }
-                    activateLicense(db, payment.user_id, payment.tier);
-                    console.log(`[webhook] Activated ${payment.tier} for user ${payment.user_id}`);
+            // 5. Activate license on successful payment (only once)
+            if (newStatus === 'finished' && payment.status !== 'finished') {
+                if (!payment.user_id) {
+                    throw new Error('Payment has no user_id — cannot activate');
                 }
-            })();
+                await activateLicense(payment.user_id, payment.tier);
+                console.log(`[webhook] Activated ${payment.tier} for user ${payment.user_id}`);
+            }
+
+            if (eventId) {
+                await db.markWebhookProcessed(eventId, null);
+            }
         } catch (e) {
             console.error('[webhook] Processing error:', e);
             if (eventId) {
-                db.prepare(`
-                    INSERT OR REPLACE INTO webhook_events
-                        (provider, event_id, payload, received_at, error)
-                    VALUES ('nowpayments', ?, ?, ?, ?)
-                `).run(eventId, JSON.stringify(payload), now, String(e));
+                await db.markWebhookProcessed(eventId, String(e));
             }
             return res.status(500).send('processing error');
         }

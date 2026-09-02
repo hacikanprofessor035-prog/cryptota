@@ -1,22 +1,49 @@
-// SQLite via better-sqlite3 (synchronous, fast for our scale).
-// Migrations run automatically on import. To add a new migration:
-//   - append a new entry to MIGRATIONS with the next version number
-//   - on startup, missing versions are applied in order
-import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
+// SQLite via sql.js (WebAssembly build, no native compilation needed).
+// We persist to disk by reading/writing the .db file as a binary blob on
+// every commit. For a small user base this is fine; for high write rates
+// we'd switch back to a native driver (better-sqlite3) on a host with
+// the build toolchain (Python + make + g++).
+//
+// Async API: every call returns a Promise. Routes use it via `await`.
+//
+// Schema migrations run on first getDb() call.
+import initSqlJs from 'sql.js';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 
-let _db = null;
+// Resolve path to sql.js's wasm file at runtime
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SQLJS_WASM_PATH = `${__dirname}/../../node_modules/sql.js/dist/sql-wasm.wasm`;
+
+let _db = null;            // sql.js Database instance
+let _ready = null;         // Promise that resolves when _db is initialised
+let _writeChain = Promise.resolve();  // serialise disk writes
 
 export function getDb() {
-    if (_db) return _db;
-    mkdirSync(dirname(config.db.path), { recursive: true });
-    _db = new Database(config.db.path);
-    _db.pragma('journal_mode = WAL');
-    _db.pragma('foreign_keys = ON');
-    runMigrations(_db);
-    return _db;
+    if (_db) return Promise.resolve(_db);
+    if (_ready) return _ready;
+    _ready = (async () => {
+        const SQL = await initSqlJs({
+            locateFile: file => SQLJS_WASM_PATH
+        });
+
+        mkdirSync(dirname(config.db.path), { recursive: true });
+
+        let db;
+        if (config.db.path === ':memory:' || !existsSync(config.db.path)) {
+            db = new SQL.Database();
+        } else {
+            const buf = readFileSync(config.db.path);
+            db = new SQL.Database(new Uint8Array(buf));
+        }
+        _db = db;
+        runMigrations(_db);
+        scheduleWrite();
+        return _db;
+    })();
+    return _ready;
 }
 
 function runMigrations(db) {
@@ -26,17 +53,22 @@ function runMigrations(db) {
             applied_at TEXT NOT NULL
         );
     `);
-    const applied = new Set(
-        db.prepare('SELECT version FROM _migrations').all().map(r => r.version)
-    );
+    const appliedRows = queryAll(db, 'SELECT version FROM _migrations');
+    const applied = new Set(appliedRows.map(r => r.version));
     for (const m of MIGRATIONS) {
         if (applied.has(m.version)) continue;
-        db.transaction(() => {
+        db.exec('BEGIN');
+        try {
             db.exec(m.sql);
-            db.prepare('INSERT INTO _migrations (version, applied_at) VALUES (?, ?)')
-                .run(m.version, new Date().toISOString());
-        })();
-        console.log(`[db] applied migration v${m.version}: ${m.name}`);
+            execStmt(db,
+                'INSERT INTO _migrations (version, applied_at) VALUES (?, ?)',
+                [m.version, new Date().toISOString()]);
+            db.exec('COMMIT');
+            console.log(`[db] applied migration v${m.version}: ${m.name}`);
+        } catch (e) {
+            db.exec('ROLLBACK');
+            throw e;
+        }
     }
 }
 
@@ -99,9 +131,206 @@ const MIGRATIONS = [
     },
 ];
 
-export function closeDb() {
+// ===== Helpers (sync, on an already-loaded db) =====
+function queryAll(db, sql, params = []) {
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    return rows;
+}
+
+function queryOne(db, sql, params = []) {
+    const rows = queryAll(db, sql, params);
+    return rows[0] || null;
+}
+
+function execStmt(db, sql, params = []) {
+    const stmt = db.prepare(sql);
+    stmt.run(params);
+    stmt.free();
+}
+
+// ===== Persist to disk =====
+let _writeScheduled = false;
+function scheduleWrite() {
+    if (_writeScheduled) return;
+    _writeScheduled = true;
+    _writeChain = _writeChain.then(() => doWrite());
+}
+
+async function doWrite() {
+    _writeScheduled = false;
+    if (config.db.path === ':memory:') return;
+    try {
+        const data = _db.export();
+        writeFileSync(config.db.path, Buffer.from(data));
+    } catch (e) {
+        console.error('[db] write failed', e);
+    }
+}
+
+// ===== Public API =====
+// All methods are async to keep the contract uniform, but on a loaded
+// in-memory db they're effectively sync internally.
+
+export async function get(userId) {
+    await getDb();
+    return queryOne(_db, 'SELECT * FROM users WHERE id = ?', [userId]);
+}
+
+// Low-level escape hatch for tests — runs raw SQL on the loaded db
+export async function runRaw(sql, params = []) {
+    await getDb();
+    execStmt(_db, sql, params);
+    scheduleWrite();
+}
+
+export async function getByEmail(email) {
+    await getDb();
+    return queryOne(_db, 'SELECT * FROM users WHERE email = ?', [email]);
+}
+
+export async function createUser({ email, passwordHash, name }) {
+    await getDb();
+    const now = new Date().toISOString();
+    execStmt(_db,
+        'INSERT INTO users (email, password_hash, name, created_at) VALUES (?, ?, ?, ?)',
+        [email, passwordHash, name || null, now]);
+    const row = queryOne(_db, 'SELECT last_insert_rowid() AS id');
+    scheduleWrite();
+    return get(row.id);
+}
+
+export async function updateLastLogin(userId) {
+    await getDb();
+    execStmt(_db, 'UPDATE users SET last_login_at = ? WHERE id = ?',
+        [new Date().toISOString(), userId]);
+    scheduleWrite();
+}
+
+export async function insertLicense({ userId, tier, expiresAt, source }) {
+    await getDb();
+    execStmt(_db,
+        'INSERT INTO licenses (user_id, tier, activated_at, expires_at, source) VALUES (?, ?, ?, ?, ?)',
+        [userId, tier, new Date().toISOString(), expiresAt || null, source]);
+    scheduleWrite();
+    return queryOne(_db, 'SELECT last_insert_rowid() AS id');
+}
+
+export async function getActiveLicense(userId) {
+    await getDb();
+    return queryOne(_db,
+        `SELECT * FROM licenses
+         WHERE user_id = ?
+           AND (expires_at IS NULL OR expires_at > datetime('now'))
+         ORDER BY activated_at DESC LIMIT 1`,
+        [userId]);
+}
+
+export async function listLicenses(userId, limit = 20) {
+    await getDb();
+    return queryAll(_db,
+        'SELECT * FROM licenses WHERE user_id = ? ORDER BY activated_at DESC LIMIT ?',
+        [userId, limit]);
+}
+
+export async function createPayment({ userId, tier, amountUsd, provider = 'nowpayments' }) {
+    await getDb();
+    const now = new Date().toISOString();
+    execStmt(_db,
+        `INSERT INTO payments
+         (user_id, provider, tier, amount_usd, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'waiting', ?, ?)`,
+        [userId || null, provider, tier, amountUsd, now, now]);
+    const row = queryOne(_db, 'SELECT last_insert_rowid() AS id');
+    scheduleWrite();
+    return queryOne(_db, 'SELECT * FROM payments WHERE id = ?', [row.id]);
+}
+
+export async function updatePayment(id, fields) {
+    await getDb();
+    const keys = Object.keys(fields);
+    if (!keys.length) return getPayment(id);
+    const sets = keys.map(k => `${k} = ?`).join(', ');
+    const vals = keys.map(k => fields[k]);
+    vals.push(new Date().toISOString());
+    vals.push(id);
+    execStmt(_db, `UPDATE payments SET ${sets}, updated_at = ? WHERE id = ?`, vals);
+    scheduleWrite();
+    return getPayment(id);
+}
+
+export async function updatePaymentByProviderId(providerPaymentId, fields) {
+    await getDb();
+    const keys = Object.keys(fields);
+    if (!keys.length) return null;
+    const sets = keys.map(k => `${k} = ?`).join(', ');
+    const vals = keys.map(k => fields[k]);
+    vals.push(new Date().toISOString());
+    vals.push(providerPaymentId);
+    execStmt(_db,
+        `UPDATE payments SET ${sets}, updated_at = ? WHERE provider_payment_id = ?`,
+        vals);
+    scheduleWrite();
+    return queryOne(_db,
+        'SELECT * FROM payments WHERE provider_payment_id = ?',
+        [providerPaymentId]);
+}
+
+export async function getPayment(id) {
+    await getDb();
+    return queryOne(_db, 'SELECT * FROM payments WHERE id = ?', [id]);
+}
+
+export async function listPayments(userId, limit = 20) {
+    await getDb();
+    return queryAll(_db,
+        'SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+        [userId, limit]);
+}
+
+export async function recordWebhookEvent({ provider, eventId, payload }) {
+    await getDb();
+    try {
+        execStmt(_db,
+            `INSERT INTO webhook_events
+             (provider, event_id, payload, received_at) VALUES (?, ?, ?, ?)`,
+            [provider, eventId, JSON.stringify(payload), new Date().toISOString()]);
+        scheduleWrite();
+        return { duplicate: false };
+    } catch (e) {
+        // UNIQUE constraint → already processed
+        if (String(e).includes('UNIQUE') || String(e).includes('constraint')) {
+            return { duplicate: true };
+        }
+        throw e;
+    }
+}
+
+export async function markWebhookProcessed(eventId, error = null) {
+    await getDb();
+    execStmt(_db,
+        'UPDATE webhook_events SET processed_at = ?, error = ? WHERE event_id = ?',
+        [new Date().toISOString(), error, eventId]);
+    scheduleWrite();
+}
+
+export async function closeDb() {
     if (_db) {
+        // Flush any pending writes before closing
+        await _writeChain;
         _db.close();
         _db = null;
+        _ready = null;
+    }
+}
+
+// For tests that need to wipe state
+export async function _resetForTests() {
+    await closeDb();
+    if (config.db.path !== ':memory:' && existsSync(config.db.path)) {
+        writeFileSync(config.db.path, Buffer.alloc(0));
     }
 }
