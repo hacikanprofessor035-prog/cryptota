@@ -13,9 +13,26 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 
-// Resolve path to sql.js's wasm file at runtime
+// Resolve path to sql.js's wasm file at runtime. We try several locations
+// because the install layout can differ between dev and Railway.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SQLJS_WASM_PATH = `${__dirname}/../../node_modules/sql.js/dist/sql-wasm.wasm`;
+const CANDIDATE_WASM_PATHS = [
+    // dev: server/src/lib/db.js → ../../node_modules/...
+    `${__dirname}/../../node_modules/sql.js/dist/sql-wasm.wasm`,
+    // Railway: app/ working dir → ./node_modules/...
+    `${process.cwd()}/node_modules/sql.js/dist/sql-wasm.wasm`,
+    `${process.cwd()}/../node_modules/sql.js/dist/sql-wasm.wasm`,
+];
+
+let SQLJS_WASM_PATH = null;
+for (const p of CANDIDATE_WASM_PATHS) {
+    if (existsSync(p)) { SQLJS_WASM_PATH = p; break; }
+}
+if (!SQLJS_WASM_PATH) {
+    // Last-ditch: let sql.js figure it out from its own resolution
+    SQLJS_WASM_PATH = 'sql-wasm.wasm';
+}
+console.log(`[db] Using sql.js wasm at: ${SQLJS_WASM_PATH}`);
 
 let _db = null;            // sql.js Database instance
 let _ready = null;         // Promise that resolves when _db is initialised
