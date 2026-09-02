@@ -37,9 +37,8 @@ window.CryptoTA_CONFIG = {
     freeUnlimitedOverride: true,
 
     // ===== Backend (Phase 2) =====
-    // Set to your backend's public URL. With null, the UI runs in phase-1
-    // mode (no auth, no payments, no license sync).
-    apiBase: 'http://localhost:3001',  // server/index.js runs on 3001 by default
+    // Public URL of the deployed backend (Railway). NO trailing slash.
+    apiBase: 'https://cryptota-production.up.railway.app',
 
     // ===== Payment provider endpoint paths (relative to apiBase) =====
     endpoints: {
