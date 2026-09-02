@@ -4,7 +4,6 @@
 // When imported (e.g. by tests), the app is created but NOT listening.
 // To start the server, run `npm start` which calls startServer().
 import express from 'express';
-import cors from 'cors';
 import { config } from './config.js';
 import { getDb, closeDb } from './lib/db.js';
 import { authRouter } from './routes/auth.js';
@@ -19,16 +18,25 @@ export async function createApp() {
     const app = express();
 
     // CORS — explicit allowlist
-    app.use(cors({
-        origin(origin, cb) {
-            if (!origin) return cb(null, true);
-            if (config.cors.origins.includes('*') || config.cors.origins.includes(origin)) {
-                return cb(null, true);
-            }
-            return cb(new Error(`Origin not allowed: ${origin}`));
-        },
-        credentials: true,
-    }));
+    const allowOrigin = (origin) => {
+        if (!origin) return true;
+        if (config.cors.origins.includes('*')) return true;
+        return config.cors.origins.includes(origin);
+    };
+
+    // Manually handle CORS so OPTIONS preflight never hits express's 404 path
+    app.use((req, res, next) => {
+        const origin = req.headers.origin;
+        if (allowOrigin(origin)) {
+            if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Vary', 'Origin');
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+            res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+        }
+        if (req.method === 'OPTIONS') return res.status(204).end();
+        next();
+    });
 
     // IMPORTANT: webhooks must receive the raw body BEFORE express.json() runs.
     app.use('/api/webhooks', webhooksRouter);
