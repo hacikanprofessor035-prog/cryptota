@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "cd server && npm start",
-    "build": "cd server && npm install"
+    "start": "cd server && npm install --omit=dev && npm start",
+    "build": "cd server && npm install --omit=dev"
   }
 }
