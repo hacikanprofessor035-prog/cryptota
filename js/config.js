@@ -88,11 +88,17 @@ window.CryptoTA_CONFIG = {
         }
     },
 
-    // ===== Pricing (USD; converted to crypto at checkout via NOWPayments) =====
-    // Pro is a single annual plan ($3/yr). Lifetime is a one-time payment
-    // discounted vs ~13 years of Pro — encourages long-term commitment.
+    // ===== Pricing =====
+    // Pro is a fixed 2 TON / year subscription. Lifetime is ~13 years of Pro at
+    // a discount, currently pegged to $39 USD (converted to TON at checkout).
+    //
+    // These values are the "display price" only — the authoritative number is
+    // the server's PRICING constant in server/src/routes/payments.js. The two
+    // MUST stay in sync, otherwise users will see one number and the invoice
+    // will show a different one.
     pricing: {
-        pro_yearly_usd: 3,
+        pro_yearly_ton: 2,           // what the user actually pays
+        pro_yearly_usd: 3,           // display only; rough USD estimate
         lifetime_usd: 39
     },
 

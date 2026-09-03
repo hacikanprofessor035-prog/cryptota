@@ -2,7 +2,7 @@
 //
 // Payment flow (TON, no third-party provider):
 //   1. POST /create  → server generates a unique memo, stores a "pending" payment
-//      with the required TON amount (computed from current TON/USD price).
+//      with the required TON amount (2 TON for Pro, live-rate for Lifetime).
 //   2. Client polls GET /:id/status every ~10s. As soon as the polling worker
 //      finds an incoming tx matching memo+amount, status flips to "completed"
 //      and a license is inserted.
@@ -18,10 +18,16 @@ const { generateMemo, usdToTon, TonError, checkIncoming } = tonLib;
 
 export const paymentsRouter = Router();
 
-// Pricing must match the frontend config. If you change these, also update
-// js/config.js → pricing.
+// Pricing.
+//   - 'pro'      → price is fixed in TON (see TON_PRICE). User always pays
+//                  exactly this many TON regardless of the TON/USD market rate.
+//   - 'lifetime' → still pegged to USD (frozen at 39 USD); converted to TON
+//                  at creation time using the live CoinGecko rate.
+//
+// If you change Pro pricing, also update js/config.js → pricing.pro_yearly_ton
+// (and the corresponding USD estimate if you want to display one).
 export const PRICING = {
-    pro: { usd: 3, durationDays: 365 },
+    pro: { ton: 2, usd: 3, durationDays: 365 },
     lifetime: { usd: 39, durationDays: null }, // null = no expiry
 };
 
@@ -32,6 +38,18 @@ const createSchema = z.object({
     payCurrency: z.string().optional().default('ton'),
 });
 
+// How much extra the user must send on top of the listed TON price.
+// Covers TON price volatility between invoice creation and tx confirmation.
+const TON_BUFFER = 0.03; // +3 %
+
+function applyBuffer(amount, pct) {
+    return amount * (1 + pct);
+}
+function roundUpTo3(x) {
+    // Round to 3 decimals so the invoice reads cleanly (e.g. 2.06 TON).
+    return Math.ceil(x * 1000) / 1000;
+}
+
 paymentsRouter.post('/create', authMiddleware(), async (req, res, next) => {
     try {
         const parsed = createSchema.safeParse(req.body);
@@ -41,14 +59,25 @@ paymentsRouter.post('/create', authMiddleware(), async (req, res, next) => {
         const { tier } = parsed.data;
         const pricing = PRICING[tier];
 
-        if (!config.ton.address) {
-            return res.status(503).json({
-                error: 'TON payments are not configured (TON_ADDRESS missing on server).',
-            });
-        }
+                if (!config.ton.address) {
+                    return res.status(503).json({
+                        error: 'TON payments are not configured on this server',
+                    });
+                }
 
-        // 1. Compute the TON amount the user must send (USD + 3% buffer).
-        const { tonAmount, nanoTon, priceUsd } = await usdToTon(pricing.usd);
+                // 2. Compute how much the user must send.
+                //    - 'pro'      → fixed TON amount (pricing.ton). Buffer applied below.
+                //    - 'lifetime' → USD peg, converted to TON at the live rate.
+                let tonAmount, nanoTon, priceUsd;
+                if (typeof pricing.ton === 'number') {
+                    // Fixed-TON tier: buffer on the TON amount itself (not the USD).
+                    tonAmount = roundUpTo3(applyBuffer(pricing.ton, TON_BUFFER));
+                    nanoTon = BigInt(Math.round(tonAmount * 1e9));
+                    // We still record a USD estimate for analytics / history.
+                    priceUsd = null; // unknown without an extra API call; leave null
+                } else {
+                    ({ tonAmount, nanoTon, priceUsd } = await usdToTon(pricing.usd));
+                }
 
         // 2. Generate a unique memo (16 hex chars). This is how we attribute
         //    the on-chain tx to this internal payment record.

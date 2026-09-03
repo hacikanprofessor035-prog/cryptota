@@ -92,7 +92,7 @@ const UI = (() => {
             const t = CryptoTA_CONFIG.tiers[key];
             const isCurrent = key === License.tier();
             const price = key === 'free' ? 'Free forever'
-                : key === 'pro' ? `$${pricing.pro_yearly_usd}/yr`
+                : key === 'pro' ? `${pricing.pro_yearly_ton} TON/yr`
                 : `$${pricing.lifetime_usd} one-time`;
             // For Free, show the *effective* limits (i.e. what the user can
             // actually use right now) so the card matches reality.
