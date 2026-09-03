@@ -157,9 +157,9 @@ const UI = (() => {
 
     /* ============ Checkout flow ============ */
 
-    // Direct TON payments to our static wallet. The user sends TON with a
-    // unique memo string so we can attribute the on-chain transaction to
-    // their account.
+    // We only accept TON. The currency-picker step is gone — clicking
+    // "Upgrade" on a tier card now drops the user directly onto the
+    // TON payment screen (address + memo + QR + amount).
     const SUPPORTED_CURRENCIES = [
         { code: 'ton', name: 'Toncoin',   symbol: '◇' },
     ];
@@ -168,38 +168,24 @@ const UI = (() => {
     let _checkoutPaymentId = null;
 
     function openCheckoutModal(tier) {
-        _checkoutPaymentId = null;
-        if (_checkoutPollTimer) { clearInterval(_checkoutPollTimer); _checkoutPollTimer = null; }
-
-        const planName = tier === 'lifetime' ? 'Lifetime' : 'Pro 1-year';
-        const titleEl = document.getElementById('checkoutTitle');
-        if (titleEl) titleEl.textContent = `Pay for ${planName}`;
-
-        // Render currency picker (TON-only for now).
-        const grid = document.getElementById('checkoutCurrencies');
-        if (grid) {
-            grid.innerHTML = SUPPORTED_CURRENCIES.map(c => `
-                <button class="currency-btn" data-currency="${c.code}">
-                    <span class="currency-btn-symbol">${c.symbol}</span>
-                    ${c.code.toUpperCase()}
-                </button>
-            `).join('');
-            grid.querySelectorAll('.currency-btn').forEach(btn => {
-                btn.addEventListener('click', () => startCheckout(tier, btn.dataset.currency));
-            });
-        }
-
-        document.getElementById('checkoutStepChoose').style.display = 'block';
-        document.getElementById('checkoutStepPay').style.display = 'none';
-        document.getElementById('checkoutStepDone').style.display = 'none';
-        openModal('checkoutModal');
+        // TON is the only supported currency, so skip the picker entirely.
+        startCheckout(tier, 'ton');
     }
 
     async function startCheckout(tier, currency) {
+        _checkoutPaymentId = null;
+        if (_checkoutPollTimer) { clearInterval(_checkoutPollTimer); _checkoutPollTimer = null; }
+
+        // Make sure the checkout modal is visible (and reset it to the
+        // "creating invoice" state) before we start the network request.
+        const planName = tier === 'lifetime' ? 'Lifetime' : 'Pro 1-year';
+        const titleEl = document.getElementById('checkoutTitle');
+        if (titleEl) titleEl.textContent = `Pay for ${planName}`;
         document.getElementById('checkoutStepChoose').style.display = 'none';
         document.getElementById('checkoutStepPay').style.display = 'block';
         document.getElementById('checkoutStepDone').style.display = 'none';
-        const planName = tier === 'lifetime' ? 'Lifetime' : 'Pro 1-year';
+        openModal('checkoutModal');
+
         document.getElementById('checkoutPlan').textContent = planName;
         document.getElementById('checkoutCurrency').textContent = currency.toUpperCase();
         document.getElementById('checkoutStatus').textContent = 'Creating invoice…';
@@ -245,9 +231,12 @@ const UI = (() => {
             startCheckoutPolling(payment.id);
         } catch (e) {
             showToast(`Error: ${e.message}`);
-            // Back to currency picker
-            document.getElementById('checkoutStepChoose').style.display = 'block';
-            document.getElementById('checkoutStepPay').style.display = 'none';
+            // No currency picker to go back to — just show the error in the
+            // status line and let the user close the modal.
+            const statusEl = document.getElementById('checkoutStatus');
+            if (statusEl) statusEl.textContent = `Failed to create invoice: ${e.message}`;
+            const qr = document.getElementById('checkoutQr');
+            if (qr) qr.src = '';
         }
     }
 
