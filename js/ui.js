@@ -176,6 +176,10 @@ const UI = (() => {
         _checkoutPaymentId = null;
         if (_checkoutPollTimer) { clearInterval(_checkoutPollTimer); _checkoutPollTimer = null; }
 
+        // Close the parent upgrade modal so the checkout modal opens on a
+        // clean background instead of stacking on top of an opaque overlay.
+        closeModal('upgradeModal');
+
         // Make sure the checkout modal is visible (and reset it to the
         // "creating invoice" state) before we start the network request.
         const planName = tier === 'lifetime' ? 'Lifetime' : 'Pro 1-year';
@@ -231,12 +235,15 @@ const UI = (() => {
             startCheckoutPolling(payment.id);
         } catch (e) {
             showToast(`Error: ${e.message}`);
-            // No currency picker to go back to — just show the error in the
+            // No currency picker to go back to — show the error in the
             // status line and let the user close the modal.
             const statusEl = document.getElementById('checkoutStatus');
             if (statusEl) statusEl.textContent = `Failed to create invoice: ${e.message}`;
             const qr = document.getElementById('checkoutQr');
             if (qr) qr.src = '';
+            // Re-open the upgrade modal so the user can try again or pick a
+            // different tier.
+            openModal('upgradeModal');
         }
     }
 
