@@ -24,13 +24,16 @@ const BinanceAPI = (() => {
     async function getExchangeInfo() {
         if (exchangeInfoCache) return exchangeInfoCache;
         const data = await fetchJson(`${REST_BASE}/api/v3/exchangeInfo`);
-        exchangeInfoCache = data.symbols.filter(s =>
-            s.status === 'TRADING' && s.quoteAsset === 'USDT'
-        ).map(s => ({
-            symbol: s.symbol,
-            base: s.baseAsset,
-            quote: s.quoteAsset
-        }));
+        // Include all trading pairs, not just USDT-quoted. The sidebar
+        // filters by quote (USDT / BTC / ETH / BNB) and the rest of the UI
+        // also works with any quote.
+        exchangeInfoCache = data.symbols
+            .filter(s => s.status === 'TRADING')
+            .map(s => ({
+                symbol: s.symbol,
+                base: s.baseAsset,
+                quote: s.quoteAsset
+            }));
         return exchangeInfoCache;
     }
 
