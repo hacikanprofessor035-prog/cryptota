@@ -30,9 +30,9 @@ const schema = z.object({
 
     CORS_ORIGINS: z.string().default('*'),
 
-    NOWPAYMENTS_API_KEY: z.string().default(''),
-    NOWPAYMENTS_IPN_SECRET: z.string().default(''),
-    NOWPAYMENTS_SANDBOX: z.enum(['true', 'false']).default('true'),
+    // TON direct payment (replaces our previous NOWPayments integration).
+    // Single static wallet address; users send TON with a unique memo.
+    TON_ADDRESS: z.string().default(''),
 
     PUBLIC_BASE_URL: z.string().default('http://localhost:3001'),
     FRONTEND_URL: z.string().default('http://localhost:8092'),
@@ -80,13 +80,8 @@ export const config = {
         origins: env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean),
     },
 
-    nowpayments: {
-        apiKey: env.NOWPAYMENTS_API_KEY,
-        ipnSecret: env.NOWPAYMENTS_IPN_SECRET,
-        sandbox: env.NOWPAYMENTS_SANDBOX === 'true',
-        baseUrl: env.NOWPAYMENTS_SANDBOX
-            ? 'https://api-sandbox.nowpayments.io/v1'
-            : 'https://api.nowpayments.io/v1',
+    ton: {
+        address: env.TON_ADDRESS,
     },
 
     publicBaseUrl: env.PUBLIC_BASE_URL,

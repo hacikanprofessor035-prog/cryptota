@@ -157,18 +157,11 @@ const UI = (() => {
 
     /* ============ Checkout flow ============ */
 
-    // Curated list of currencies we support. NOWPayments supports 200+ but
-    // showing all of them is overwhelming; we offer the most common ones.
+    // Direct TON payments to our static wallet. The user sends TON with a
+    // unique memo string so we can attribute the on-chain transaction to
+    // their account.
     const SUPPORTED_CURRENCIES = [
-        { code: 'btc', name: 'Bitcoin',    symbol: '₿' },
-        { code: 'eth', name: 'Ethereum',   symbol: 'Ξ' },
-        { code: 'usdt', name: 'USDT',      symbol: '₮' },
-        { code: 'usdc', name: 'USDC',      symbol: '$' },
-        { code: 'ltc', name: 'Litecoin',   symbol: 'Ł' },
-        { code: 'sol', name: 'Solana',     symbol: '◎' },
-        { code: 'bnb', name: 'BNB',        symbol: 'BNB' },
-        { code: 'xmr', name: 'Monero',     symbol: 'ɱ' },
-        { code: 'trx', name: 'TRON',       symbol: 'T' },
+        { code: 'ton', name: 'Toncoin',   symbol: '◇' },
     ];
 
     let _checkoutPollTimer = null;
@@ -182,13 +175,13 @@ const UI = (() => {
         const titleEl = document.getElementById('checkoutTitle');
         if (titleEl) titleEl.textContent = `Pay for ${planName}`;
 
-        // Render currency picker
+        // Render currency picker (TON-only for now).
         const grid = document.getElementById('checkoutCurrencies');
         if (grid) {
             grid.innerHTML = SUPPORTED_CURRENCIES.map(c => `
                 <button class="currency-btn" data-currency="${c.code}">
                     <span class="currency-btn-symbol">${c.symbol}</span>
-                    ${c.code}
+                    ${c.code.toUpperCase()}
                 </button>
             `).join('');
             grid.querySelectorAll('.currency-btn').forEach(btn => {
@@ -208,7 +201,7 @@ const UI = (() => {
         document.getElementById('checkoutStepDone').style.display = 'none';
         const planName = tier === 'lifetime' ? 'Lifetime' : 'Pro 1-year';
         document.getElementById('checkoutPlan').textContent = planName;
-        document.getElementById('checkoutCurrency').textContent = currency;
+        document.getElementById('checkoutCurrency').textContent = currency.toUpperCase();
         document.getElementById('checkoutStatus').textContent = 'Creating invoice…';
         document.getElementById('checkoutAmount').textContent = '…';
         document.getElementById('checkoutAddress').textContent = '…';
@@ -231,10 +224,21 @@ const UI = (() => {
             _checkoutPaymentId = payment.id;
 
             document.getElementById('checkoutAmount').textContent = `${payment.payAmount} ${payment.payCurrency}`.toUpperCase();
+
+            // Address + memo go in separate fields so the user can copy each
+            // cleanly into the "address" and "comment/memo" inputs of their wallet.
             document.getElementById('checkoutAddress').textContent = payment.payAddress;
+            const memoEl = document.getElementById('checkoutMemo');
+            if (memoEl) memoEl.textContent = payment.memo;
             document.getElementById('checkoutStatus').textContent = 'Waiting for payment';
-            // QR via Google Charts API (no API key needed, public service)
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(payment.payAddress)}`;
+
+            // QR encodes a TON URI: ton://transfer/<addr>?amount=<x>&text=<memo>
+            // Most wallets (Tonkeeper, MyTonWallet, Tonhub) recognise this and
+            // pre-fill everything for the user.
+            const tonUri = `ton://transfer/${payment.payAddress}` +
+                `?amount=${(payment.payAmount * 1e9).toFixed(0)}` +
+                `&text=${encodeURIComponent(payment.memo)}`;
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(tonUri)}`;
             document.getElementById('checkoutQr').src = qrUrl;
 
             // Start polling for status
@@ -428,6 +432,15 @@ const UI = (() => {
             if (addr && addr !== '—') {
                 navigator.clipboard?.writeText(addr).then(
                     () => showToast('Address copied'),
+                    () => showToast('Copy failed — select text manually')
+                );
+            }
+        });
+        document.getElementById('checkoutCopyMemoBtn')?.addEventListener('click', () => {
+            const memo = document.getElementById('checkoutMemo').textContent;
+            if (memo && memo !== '—') {
+                navigator.clipboard?.writeText(memo).then(
+                    () => showToast('Memo copied'),
                     () => showToast('Copy failed — select text manually')
                 );
             }

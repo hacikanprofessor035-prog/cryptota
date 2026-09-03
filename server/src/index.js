@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { getDb, closeDb } from './lib/db.js';
 import { authRouter } from './routes/auth.js';
 import { licenseRouter } from './routes/license.js';
-import { paymentsRouter, PRICING } from './routes/payments.js';
+import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.js';
 import { webhooksRouter } from './routes/webhooks.js';
 
 export async function createApp() {
@@ -50,9 +50,9 @@ export async function createApp() {
             ok: true,
             version: '1.0.0',
             pricing: PRICING,
-            nowpayments: {
-                configured: !!config.nowpayments.apiKey,
-                sandbox: config.nowpayments.sandbox,
+            ton: {
+                configured: !!config.ton.address,
+                address: config.ton.address ? config.ton.address.slice(0, 6) + '…' + config.ton.address.slice(-4) : null,
             },
         });
     });
@@ -79,9 +79,12 @@ export async function startServer() {
     const app = await createApp();
     const server = app.listen(config.port, () => {
         console.log(`[server] listening on http://localhost:${config.port}`);
-        console.log(`[server] NOWPayments: ${config.nowpayments.apiKey ? 'configured' : 'NOT configured (payments will fail)'}`);
+        console.log(`[server] TON: ${config.ton.address ? `${config.ton.address.slice(0,6)}…${config.ton.address.slice(-4)}` : 'NOT configured (payments will fail)'}`);
         console.log(`[server] CORS allowed origins: ${config.cors.origins.join(', ')}`);
     });
+
+    // Start polling worker for TON payments
+    startPaymentPolling();
 
     function shutdown(signal) {
         console.log(`[server] received ${signal}, shutting down...`);

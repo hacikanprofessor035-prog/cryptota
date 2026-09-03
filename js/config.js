@@ -96,9 +96,10 @@ window.CryptoTA_CONFIG = {
         lifetime_usd: 39
     },
 
-    // ===== Future payment provider =====
-    // NOWPayments recommended (200+ coins). Coinbase Commerce alternative.
-    paymentProvider: 'nowpayments'    // 'nowpayments' | 'coinbase-commerce' | 'btcpay'
+    // ===== Payment provider =====
+    // Direct TON (Toncoin) payments to our static wallet. No third-party involved.
+    // Memo on the transaction identifies which user paid.
+    paymentProvider: 'ton'    // 'ton'
 };
 
 /* === Helpers === */

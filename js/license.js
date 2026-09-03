@@ -70,7 +70,7 @@ const License = (() => {
             expiresAt: null,            // epoch ms, null for free or lifetime
             startedAt: Date.now(),
             invoiceId: null,
-            provider: 'local'           // 'local' | 'nowpayments' | 'coinbase-commerce'
+            provider: 'local'           // 'local' | 'ton'
         };
     }
 

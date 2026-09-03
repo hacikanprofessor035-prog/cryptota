@@ -117,7 +117,7 @@ const MIGRATIONS = [
             CREATE TABLE payments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
-                provider TEXT NOT NULL DEFAULT 'nowpayments',
+                provider TEXT NOT NULL DEFAULT 'ton',
                 provider_payment_id TEXT,
                 tier TEXT NOT NULL CHECK(tier IN ('pro', 'lifetime')),
                 amount_usd REAL NOT NULL,
@@ -144,6 +144,24 @@ const MIGRATIONS = [
                 error TEXT,
                 UNIQUE(provider, event_id)
             );
+        `,
+    },
+    {
+        version: 2,
+        name: 'ton direct payments',
+        sql: `
+            ALTER TABLE payments ADD COLUMN memo TEXT;
+            ALTER TABLE payments ADD COLUMN price_usd_at_create REAL;
+            ALTER TABLE payments ADD COLUMN min_nano_ton INTEGER;
+            ALTER TABLE payments ADD COLUMN last_seen_lt TEXT;
+            ALTER TABLE payments ADD COLUMN last_seen_utime INTEGER;
+            ALTER TABLE payments ADD COLUMN tx_hash TEXT;
+            ALTER TABLE payments ADD COLUMN tx_lt TEXT;
+            ALTER TABLE payments ADD COLUMN tx_from TEXT;
+            ALTER TABLE payments ADD COLUMN tx_value INTEGER;
+            ALTER TABLE payments ADD COLUMN completed_at INTEGER;
+            CREATE INDEX idx_payments_memo ON payments(memo) WHERE memo IS NOT NULL;
+            CREATE INDEX idx_payments_status ON payments(status);
         `,
     },
 ];
@@ -306,6 +324,44 @@ export async function listPayments(userId, limit = 20) {
     return queryAll(_db,
         'SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
         [userId, limit]);
+}
+
+/** All payments in 'waiting' status with a memo. Used by the TON polling worker. */
+export async function listPendingPayments() {
+    await getDb();
+    return queryAll(_db,
+        `SELECT * FROM payments
+         WHERE status = 'waiting'
+           AND memo IS NOT NULL
+           AND min_nano_ton IS NOT NULL
+         ORDER BY id ASC
+         LIMIT 100`);
+}
+
+/** KV store for the polling worker — when was the last full scan? */
+export async function getPollCheckpoint() {
+    await getDb();
+    // Read from a tiny k/v table if it exists, else null.
+    const row = queryOne(_db,
+        `SELECT name FROM sqlite_master
+         WHERE type='table' AND name='_kv'`);
+    if (!row) return null;
+    return queryOne(_db,
+        `SELECT value FROM _kv WHERE key = 'poll_checkpoint'`);
+}
+
+export async function setPollCheckpoint(ts) {
+    await getDb();
+    const has = queryOne(_db,
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='_kv'`);
+    if (!has) {
+        execStmt(_db, `CREATE TABLE IF NOT EXISTS _kv (key TEXT PRIMARY KEY, value TEXT)`);
+    }
+    execStmt(_db,
+        `INSERT INTO _kv (key, value) VALUES ('poll_checkpoint', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [String(ts)]);
+    scheduleWrite();
 }
 
 export async function recordWebhookEvent({ provider, eventId, payload }) {
