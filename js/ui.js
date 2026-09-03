@@ -418,6 +418,17 @@ const UI = (() => {
         document.getElementById('closeUpgradeModal')?.addEventListener('click', () => closeModal('upgradeModal'));
         document.getElementById('closeAuthModal')?.addEventListener('click', () => closeModal('authModal'));
         document.getElementById('closeCheckoutModal')?.addEventListener('click', closeCheckoutModal);
+
+        // Stats modal close — also stop the 5s polling interval.
+        const closeStats = () => {
+            if (typeof window.AppStopStatsPolling === 'function') window.AppStopStatsPolling();
+            closeModal('statsModal');
+        };
+        document.getElementById('closeStatsModal')?.addEventListener('click', closeStats);
+        // data-close="statsModal" buttons (the X in the head)
+        document.querySelectorAll('[data-close="statsModal"]').forEach(btn => {
+            btn.addEventListener('click', closeStats);
+        });
         document.getElementById('checkoutDoneBtn')?.addEventListener('click', () => {
             closeCheckoutModal();
             // Also close the upgrade modal so the user lands back on the chart

@@ -294,7 +294,96 @@ const App = (() => {
         window.UI = UI;
         // Expose toast for UI module
         window.appShowToast = showToast;
+
+        // Show the Stats button only if an admin token is configured.
+        if (CryptoTA_CONFIG.adminToken) {
+            const btn = document.getElementById('statsButton');
+            if (btn) {
+                btn.style.display = '';
+                btn.addEventListener('click', openStatsModal);
+            }
+        }
     }
+
+    // ===== Stats modal =====
+    // Fetches /api/admin/stats on demand and renders the result into
+    // #statsGrid. Auto-refreshes every 5s while the modal is open.
+    let _statsTimer = null;
+    async function openStatsModal() {
+        const modal = document.getElementById('statsModal');
+        if (!modal) return;
+        modal.style.display = '';
+        // Reset all values to "…" so the user sees something animate in.
+        document.querySelectorAll('#statsGrid .stats-value').forEach(v => {
+            v.textContent = '…';
+            v.dataset.loading = 'true';
+        });
+        const footer = document.getElementById('statsFooter');
+        if (footer) footer.textContent = 'Loading…';
+        await fetchStats();
+        if (_statsTimer) clearInterval(_statsTimer);
+        _statsTimer = setInterval(fetchStats, 5000);
+        // Stop polling when the modal closes.
+        modal._stopStats = () => {
+            if (_statsTimer) { clearInterval(_statsTimer); _statsTimer = null; }
+        };
+    }
+
+    async function fetchStats() {
+        const token = CryptoTA_CONFIG.adminToken;
+        if (!token) return;
+        try {
+            const r = await fetch(`${CryptoTA_CONFIG.apiBase}${CryptoTA_CONFIG.endpoints.adminStats}`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            if (!r.ok) {
+                setStatsValue('usersTotal', 'Error');
+                const footer = document.getElementById('statsFooter');
+                if (footer) footer.textContent = `Failed: HTTP ${r.status}`;
+                return;
+            }
+            const d = await r.json();
+            renderStats(d);
+        } catch (e) {
+            const footer = document.getElementById('statsFooter');
+            if (footer) footer.textContent = `Network error: ${e.message}`;
+        }
+    }
+
+    function setStatsValue(key, value) {
+        const row = document.querySelector(`#statsGrid .stats-row[data-key="${key}"] .stats-value`);
+        if (row) {
+            row.textContent = value;
+            row.dataset.loading = 'false';
+        }
+    }
+
+    function renderStats(d) {
+        setStatsValue('usersTotal', fmt(d.usersTotal));
+        setStatsValue('onlineNow', fmt(d.onlineNow));
+        setStatsValue('onlineLast24h', fmt(d.onlineLast24h));
+        setStatsValue('usersLoggedIn24h', fmt(d.usersLoggedIn24h));
+        setStatsValue('proHolders', fmt(d.proHolders));
+        setStatsValue('lifetimeHolders', fmt(d.lifetimeHolders));
+        setStatsValue('paymentsTotal', fmt(d.payments?.total));
+        setStatsValue('paymentsFinished', fmt(d.payments?.finished));
+        setStatsValue('paymentsWaiting', fmt(d.payments?.waiting));
+        setStatsValue('tonReceived', (d.payments?.tonReceivedNano / 1e9).toFixed(2) + ' TON');
+        const footer = document.getElementById('statsFooter');
+        if (footer && d.serverTime) {
+            footer.textContent = 'Server time: ' + new Date(d.serverTime).toLocaleString();
+        }
+    }
+
+    function fmt(n) {
+        if (typeof n !== 'number') return '—';
+        return n.toLocaleString();
+    }
+
+    // Expose for the modal close button (data-close handler in UI)
+    window.AppStopStatsPolling = () => {
+        if (_statsTimer) { clearInterval(_statsTimer); _statsTimer = null; }
+    };
 
     function renderPairList() {
         const list = document.getElementById('pairList');

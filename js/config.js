@@ -50,7 +50,16 @@ window.CryptoTA_CONFIG = {
         paymentsCreate: '/api/payments/create',
         paymentsList:   '/api/payments',
         paymentStatus:  (id) => `/api/payments/${id}/status`,
+        adminStats:     '/api/admin/stats',
     },
+
+    // ===== Admin token =====
+    // Used by the "Stats" button in the topbar. Set this to the value of
+    // ADMIN_TOKEN on the server. Stored in plaintext because it's read-only
+    // and grants no write access — it just unlocks the dashboard view.
+    //
+    // If empty, the Stats button is hidden.
+    adminToken: 'c0c6e2181f5ef9d0a4b235a82e839696631c54706d169a75f6f92a1c82693a42',
 
     // ===== Tier limits =====
     // Used only when billingEnabled === true.

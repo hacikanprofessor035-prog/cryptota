@@ -85,6 +85,7 @@
 
                 <button class="tier-badge" id="tierBadge" data-tier="free" title="Click to upgrade">FREE</button>
                 <button class="auth-button" id="authButton" data-auth="false" title="Sign in to sync your settings">Sign in</button>
+                <button class="ct-icon-btn" id="statsButton" data-action="stats" title="Server stats (admin)" style="display:none">▤</button>
             </div>
         </header>
 
@@ -228,6 +229,61 @@
                     ✓ Payment received. Your <strong id="checkoutDonePlan">license</strong> is now active.
                 </p>
                 <button class="auth-btn-primary" id="checkoutDoneBtn">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin stats modal — only shown if CryptoTA_CONFIG.adminToken is set -->
+    <div class="modal-overlay" id="statsModal" style="display:none;">
+        <div class="modal stats-modal">
+            <div class="modal-head">
+                <h3>Server statistics</h3>
+                <button class="modal-close" data-close="statsModal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="stats-grid" id="statsGrid">
+                    <div class="stats-row" data-key="usersTotal">
+                        <span class="stats-label">Registered users</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="onlineNow">
+                        <span class="stats-label">Online now (5 min)</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="onlineLast24h">
+                        <span class="stats-label">Active last 24h</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="usersLoggedIn24h">
+                        <span class="stats-label">Logged in last 24h</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="proHolders">
+                        <span class="stats-label">Pro subscribers</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="lifetimeHolders">
+                        <span class="stats-label">Lifetime members</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="paymentsTotal">
+                        <span class="stats-label">Payments total</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="paymentsFinished">
+                        <span class="stats-label">Payments completed</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="paymentsWaiting">
+                        <span class="stats-label">Payments waiting</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                    <div class="stats-row" data-key="tonReceived">
+                        <span class="stats-label">TON received</span>
+                        <span class="stats-value">—</span>
+                    </div>
+                </div>
+                <p class="stats-footer" id="statsFooter">—</p>
             </div>
         </div>
     </div>
