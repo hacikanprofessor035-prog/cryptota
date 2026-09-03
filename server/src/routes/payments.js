@@ -11,8 +11,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import * as db from '../lib/db.js';
 import { authMiddleware } from '../lib/auth.js';
-import { ton, generateMemo, usdToTon, TonError } from '../lib/ton.js';
+import * as tonLib from '../lib/ton.js';
 import { config } from '../config.js';
+
+const { generateMemo, usdToTon, TonError, checkIncoming } = tonLib;
 
 export const paymentsRouter = Router();
 
@@ -169,7 +171,7 @@ async function pollOnce() {
         // scale (≤ a few dozen at a time).
         for (const p of pending) {
             try {
-                const res = await ton.checkIncoming({
+                const res = await checkIncoming({
                     memo: p.memo,
                     minNanoTon: p.min_nano_ton,
                     sinceLt: p.last_seen_lt,
