@@ -93,7 +93,7 @@ const UI = (() => {
             const isCurrent = key === License.tier();
             const price = key === 'free' ? 'Free forever'
                 : key === 'pro' ? `${pricing.pro_yearly_ton} TON/yr`
-                : `$${pricing.lifetime_usd} one-time`;
+                : `${pricing.lifetime_ton} TON one-time`;
             // For Free, show the *effective* limits (i.e. what the user can
             // actually use right now) so the card matches reality.
             const effectiveLimits = (key === 'free' && freeUnlimited)

@@ -89,17 +89,19 @@ window.CryptoTA_CONFIG = {
     },
 
     // ===== Pricing =====
-    // Pro is a fixed 2 TON / year subscription. Lifetime is ~13 years of Pro at
-    // a discount, currently pegged to $39 USD (converted to TON at checkout).
+    // Both tiers are priced in TON directly (no USD peg).
+    //   - Pro:      2 TON / year
+    //   - Lifetime: 20 TON one-time
     //
     // These values are the "display price" only — the authoritative number is
     // the server's PRICING constant in server/src/routes/payments.js. The two
     // MUST stay in sync, otherwise users will see one number and the invoice
-    // will show a different one.
+    // will show a different one. (The *_usd fields are kept for analytics only.)
     pricing: {
-        pro_yearly_ton: 2,           // what the user actually pays
-        pro_yearly_usd: 3,           // display only; rough USD estimate
-        lifetime_usd: 39
+        pro_yearly_ton: 2,
+        pro_yearly_usd: 3,           // rough USD estimate, for display only
+        lifetime_ton: 20,
+        lifetime_usd: 39             // rough USD estimate, for display only
     },
 
     // ===== Payment provider =====

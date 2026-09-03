@@ -18,17 +18,13 @@ const { generateMemo, usdToTon, TonError, checkIncoming } = tonLib;
 
 export const paymentsRouter = Router();
 
-// Pricing.
-//   - 'pro'      → price is fixed in TON (see TON_PRICE). User always pays
-//                  exactly this many TON regardless of the TON/USD market rate.
-//   - 'lifetime' → still pegged to USD (frozen at 39 USD); converted to TON
-//                  at creation time using the live CoinGecko rate.
-//
-// If you change Pro pricing, also update js/config.js → pricing.pro_yearly_ton
-// (and the corresponding USD estimate if you want to display one).
+// Pricing. Both tiers are now priced in TON directly (no USD peg, no
+// CoinGecko call). Update the corresponding numbers in js/config.js when
+// you change these — the two MUST stay in sync, otherwise users will see
+// one price on the card and a different one on the invoice.
 export const PRICING = {
     pro: { ton: 2, usd: 3, durationDays: 365 },
-    lifetime: { usd: 39, durationDays: null }, // null = no expiry
+    lifetime: { ton: 20, usd: 39, durationDays: null }, // null = no expiry
 };
 
 const createSchema = z.object({
