@@ -94,7 +94,7 @@ const Session = (() => {
         if (!CryptoTA_CONFIG.apiBase) {
             throw new Error('Authentication is not yet available (phase 1).');
         }
-        const r = await fetch(`${CryptoTA_CONFIG.apiBase}/auth/login`, {
+        const r = await fetch(`${CryptoTA_CONFIG.apiBase}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
@@ -109,12 +109,21 @@ const Session = (() => {
         if (!CryptoTA_CONFIG.apiBase) {
             throw new Error('Registration is not yet available (phase 1).');
         }
-        const r = await fetch(`${CryptoTA_CONFIG.apiBase}/auth/register`, {
+        const r = await fetch(`${CryptoTA_CONFIG.apiBase}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
-        if (!r.ok) throw new Error((await r.json()).message || 'Registration failed');
+        if (!r.ok) {
+            let errMsg = 'Registration failed';
+            try {
+                const data = await r.json();
+                errMsg = data.message || data.error || errMsg;
+            } catch {
+                errMsg = `Server returned ${r.status} ${r.statusText} (not JSON)`;
+            }
+            throw new Error(errMsg);
+        }
         const { token, user } = await r.json();
         login(token, user, { provider: 'email' });
         return _session;
