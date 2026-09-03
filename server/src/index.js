@@ -5,11 +5,14 @@
 // To start the server, run `npm start` which calls startServer().
 import express from 'express';
 import { config } from './config.js';
+import * as db from './lib/db.js';
 import { getDb, closeDb } from './lib/db.js';
+import { authMiddleware } from './lib/auth.js';
 import { authRouter } from './routes/auth.js';
 import { licenseRouter } from './routes/license.js';
 import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import adminRouter from './routes/admin.js';
 
 export async function createApp() {
     // Initialise database (runs migrations)
@@ -60,6 +63,19 @@ export async function createApp() {
     app.use('/api/auth', authRouter);
     app.use('/api/license', licenseRouter);
     app.use('/api/payments', paymentsRouter);
+    app.use('/api/admin', adminRouter);
+
+    // Lightweight activity tracker: any authenticated request bumps the
+    // user's last_seen_at. Runs as OPTIONAL auth (so unauthenticated
+    // traffic doesn't 401) BEFORE the routes. Skips /api/health and
+    // /api/admin so monitoring probes don't pollute the count.
+    app.use(authMiddleware(false));
+    app.use((req, res, next) => {
+        if (req.user && !req.path.startsWith('/api/health') && !req.path.startsWith('/api/admin')) {
+            db.recordActivity(req.user.id).catch(() => {});
+        }
+        next();
+    });
 
     app.use('/api/*', (req, res) => {
         res.status(404).json({ error: 'Not found', path: req.path });

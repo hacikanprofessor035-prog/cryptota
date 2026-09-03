@@ -164,6 +164,23 @@ const MIGRATIONS = [
             CREATE INDEX idx_payments_status ON payments(status);
         `,
     },
+    {
+        // v3: activity log + license tier — backs the /api/admin/stats endpoint.
+        // user_activity records the last API hit per user (TTL = 5 minutes, used
+        // to compute "online" count). licenses.tier is denormalized so we can
+        // count pro/lifetime holders without joining on payments.
+        version: 3,
+        name: 'activity log + license tier',
+        sql: `
+            CREATE TABLE IF NOT EXISTS user_activity (
+                user_id INTEGER PRIMARY KEY,
+                last_seen_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_activity_seen ON user_activity(last_seen_at);
+            ALTER TABLE licenses ADD COLUMN tier_text TEXT;
+        `,
+    },
 ];
 
 // ===== Helpers (sync, on an already-loaded db) =====
@@ -243,6 +260,76 @@ export async function updateLastLogin(userId) {
     execStmt(_db, 'UPDATE users SET last_login_at = ? WHERE id = ?',
         [new Date().toISOString(), userId]);
     scheduleWrite();
+}
+
+// ===== Activity log (backed by user_activity) =====
+// Backs the /api/admin/stats "online" counter. We treat the last 5 minutes
+// of activity as "online now" and the last 24h as "active today".
+
+const ACTIVITY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export async function recordActivity(userId) {
+    await getDb();
+    const now = new Date().toISOString();
+    execStmt(_db,
+        `INSERT INTO user_activity (user_id, last_seen_at) VALUES (?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+        [userId, now]);
+    // Don't scheduleWrite() here — we'd be writing on every API call.
+    // We'll let the next "real" mutation flush it. SQLite reads are fine
+    // against a stale buffer; the worst case is the online count lags by
+    // a few seconds, which is acceptable.
+}
+
+export async function getStats() {
+    await getDb();
+    const now = Date.now();
+    const fiveMinAgo = new Date(now - ACTIVITY_TTL_MS).toISOString();
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+
+    const num = (sql, params = []) => {
+        const r = queryOne(_db, sql, params);
+        return r ? Number(r.c) : 0;
+    };
+
+    return {
+        // Total registered users.
+        usersTotal:     num('SELECT COUNT(*) AS c FROM users'),
+        // Logged in within the last 24 hours (anything more granular than
+        // "online now" needs last_login_at; activity is a separate signal).
+        usersLoggedIn24h: num(
+            "SELECT COUNT(*) AS c FROM users WHERE last_login_at >= ?", [dayAgo]),
+        // Touched the API within the last 5 minutes — the "online now" count.
+        onlineNow:      num(
+            'SELECT COUNT(*) AS c FROM user_activity WHERE last_seen_at >= ?', [fiveMinAgo]),
+        onlineLast24h:  num(
+            'SELECT COUNT(*) AS c FROM user_activity WHERE last_seen_at >= ?', [dayAgo]),
+
+        // Licenses. tier is the canonical column (tier_text is a denorm
+        // fallback for the migration v3 transition).
+        proHolders:     num(
+            "SELECT COUNT(*) AS c FROM licenses WHERE tier = 'pro' AND (expires_at IS NULL OR expires_at > ?) AND activated_at <= ?",
+            [new Date(now).toISOString(), new Date(now).toISOString()]),
+        lifetimeHolders: num(
+            "SELECT COUNT(*) AS c FROM licenses WHERE tier = 'lifetime' AND (expires_at IS NULL OR expires_at > ?) AND activated_at <= ?",
+            [new Date(now).toISOString(), new Date(now).toISOString()]),
+
+        // Payments. status values: waiting | confirming | finished | failed | expired.
+        payments: {
+            total:     num('SELECT COUNT(*) AS c FROM payments'),
+            waiting:   num("SELECT COUNT(*) AS c FROM payments WHERE status = 'waiting'"),
+            finished:  num("SELECT COUNT(*) AS c FROM payments WHERE status = 'finished'"),
+            failed:    num("SELECT COUNT(*) AS c FROM payments WHERE status IN ('failed','expired')"),
+            // Total TON received (in nanoTON, sum of tx_value on finished payments).
+            tonReceivedNano: Number(queryOne(
+                _db,
+                "SELECT COALESCE(SUM(tx_value), 0) AS c FROM payments WHERE status = 'finished' AND tx_value IS NOT NULL"
+            )?.c || 0),
+        },
+
+        // Server-reported time so the UI can show "last updated".
+        serverTime: new Date().toISOString(),
+    };
 }
 
 export async function insertLicense({ userId, tier, expiresAt, source }) {
