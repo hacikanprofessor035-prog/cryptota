@@ -82,7 +82,6 @@ const License = (() => {
     /* ============ Backend (no-op in phase 1) ============ */
 
     async function refresh() {
-        if (!CryptoTA_CONFIG.apiBase) return;
         const token = window.Session?.token?.();
         if (!token) return;
         try {
@@ -188,8 +187,7 @@ const License = (() => {
     /* ============ Upgrade flow ============ */
 
     function upgradeUrl() {
-        // Phase 2: returns backend-hosted upgrade page
-        if (!CryptoTA_CONFIG.apiBase) return '#';
+        // Returns relative path to backend-hosted upgrade page
         return `${CryptoTA_CONFIG.apiBase}/upgrade?tier=pro`;
     }
 

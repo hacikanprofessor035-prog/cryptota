@@ -38,7 +38,9 @@ window.CryptoTA_CONFIG = {
 
     // ===== Backend (Phase 2) =====
     // Public URL of the deployed backend (Railway). NO trailing slash.
-    apiBase: 'http://185.192.22.193',
+    // '' = same-origin (Netlify redirects /api/* to VPS via _redirects file).
+    // Set to full URL (e.g. 'https://api.cryptota.app') to bypass the proxy.
+    apiBase: '',
 
     // ===== Payment provider endpoint paths (relative to apiBase) =====
     endpoints: {

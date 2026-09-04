@@ -140,10 +140,6 @@ const UI = (() => {
             showToast('Contact support to downgrade');
             return;
         }
-        if (!CryptoTA_CONFIG.apiBase) {
-            showToast('Backend not configured');
-            return;
-        }
         if (!Session.isAuthenticated()) {
             showToast('Sign in first to upgrade');
             // Open auth modal after a moment

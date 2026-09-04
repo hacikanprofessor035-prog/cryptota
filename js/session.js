@@ -91,9 +91,6 @@ const Session = (() => {
     /* ============ Phase 2: Backend calls (stubs for now) ============ */
 
     async function loginWithEmail(email, password) {
-        if (!CryptoTA_CONFIG.apiBase) {
-            throw new Error('Authentication is not yet available (phase 1).');
-        }
         const r = await fetch(`${CryptoTA_CONFIG.apiBase}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -106,9 +103,6 @@ const Session = (() => {
     }
 
     async function registerWithEmail(email, password) {
-        if (!CryptoTA_CONFIG.apiBase) {
-            throw new Error('Registration is not yet available (phase 1).');
-        }
         const r = await fetch(`${CryptoTA_CONFIG.apiBase}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
