@@ -38,7 +38,7 @@ window.CryptoTA_CONFIG = {
 
     // ===== Backend (Phase 2) =====
     // Public URL of the deployed backend (Railway). NO trailing slash.
-    apiBase: 'https://cryptota-production.up.railway.app',
+    apiBase: 'http://185.192.22.193',
 
     // ===== Payment provider endpoint paths (relative to apiBase) =====
     endpoints: {
