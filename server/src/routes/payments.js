@@ -238,7 +238,7 @@ async function activatePayment(p, tx) {
         sourceId: String(tx.hash || ''),
     });
     await db.updatePayment(p.id, {
-        status: 'completed',
+        status: 'finished',
         tx_hash: tx.hash,
         tx_lt: tx.lt,
         tx_from: tx.from,
