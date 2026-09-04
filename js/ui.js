@@ -5,16 +5,16 @@
  * upgrade modal only shows tier cards, and auth modal is openable
  * any time. The backend actions stay stubs until apiBase is set.
  *
- * Phase 1 (now):
+ * Phase 1 (done):
  *   - Tier badge shows current tier (always 'free' by default)
  *   - Auth button shows "Sign in" or user email
- *   - Upgrade modal shows tier comparison (no payment yet)
+ *   - Upgrade modal shows tier comparison (TON pricing)
  *   - Auth modal shows login form (submit fails with "not available")
  *
- * Phase 2 (later):
+ * Phase 2 (done):
  *   - Login submits to backend, JWT stored
- *   - Upgrade creates real payment invoice via NOWPayments
- *   - Tier badge updates after payment confirms
+ *   - Upgrade creates real TON payment invoice (direct wallet, no provider)
+ *   - Tier badge updates after polling worker confirms the on-chain tx
  */
 
 const UI = (() => {
@@ -224,12 +224,19 @@ const UI = (() => {
 
             // QR encodes a TON URI: ton://transfer/<addr>?amount=<x>&text=<memo>
             // Most wallets (Tonkeeper, MyTonWallet, Tonhub) recognise this and
-            // pre-fill everything for the user.
+            // pre-fill everything for the user. On mobile, scanning the QR or
+            // clicking the "Open in wallet" link launches the wallet directly.
             const tonUri = `ton://transfer/${payment.payAddress}` +
                 `?amount=${(payment.payAmount * 1e9).toFixed(0)}` +
                 `&text=${encodeURIComponent(payment.memo)}`;
             const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(tonUri)}`;
             document.getElementById('checkoutQr').src = qrUrl;
+
+            // "Open in wallet" link — uses the same ton:// URI. On desktop
+            // this is a no-op (wallets register the scheme only on mobile),
+            // on mobile it hands off to Tonkeeper/MyTonWallet/Tonhub.
+            const openLink = document.getElementById('checkoutOpenWallet');
+            if (openLink) openLink.href = tonUri;
 
             // Start polling for status
             startCheckoutPolling(payment.id);

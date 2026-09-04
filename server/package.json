@@ -1,7 +1,7 @@
 {
   "name": "cryptota-server",
   "version": "1.0.0",
-  "description": "CryptoTA backend — auth, payments (NOWPayments), license management",
+  "description": "CryptoTA backend — auth, payments (direct TON), license management",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

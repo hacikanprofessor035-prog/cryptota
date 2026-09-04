@@ -23,7 +23,7 @@ This document describes how CryptoTA is architected so that monetisation can be 
 | Pro      | $3/yr            | ∞          | ∞          | ∞          | ✓          | ∞             |
 | Lifetime | $39 one-time     | ∞          | ∞          | ∞          | ✓          | ∞             |
 
-Pricing is in USD; converted to crypto at checkout via payment provider (NOWPayments default).
+Pricing is in TON (Toncoin); the on-chain USD value is informational only. Users pay TON from their wallet directly to the project's static wallet address with a unique per-invoice memo; the server's polling worker matches incoming transactions to invoices.
 
 ## File layout
 
@@ -41,38 +41,37 @@ crypto-ta/
 
 ## How to turn on billing (Phase 2 checklist)
 
-1. **Stand up a backend** (Node/Express, Python/FastAPI, Go, whatever)
+1. **Stand up a backend** (Node/Express)
    - POST `/auth/register` { email, password } → { token, user }
    - POST `/auth/login` { email, password } → { token, user }
-   - GET `/auth/google` and `/auth/apple` for OAuth flow
    - GET `/license/me` → { tier, expiresAt, userId }
-   - POST `/payments/create` { tier, currency } → { invoiceId, address, amount, qrCode }
-   - POST `/webhooks/nowpayments` (HMAC-signed) — upgrades tier
+   - POST `/payments/create` { tier, payCurrency: 'ton' } → { payment: { id, memo, payAddress, payAmount, ... } }
+   - GET `/payments/:id/status` → poll until `status === 'completed'`
+   - **No third-party webhook.** Payment confirmation is done by our own polling worker (`src/routes/payments.js`) that scans the TON blockchain every 15s for incoming txs matching `memo + amount`.
 
 2. **Set config in `js/config.js`:**
    ```js
    window.CryptoTA_CONFIG = {
        billingEnabled: true,
-       socialLoginEnabled: true,
-       apiBase: 'https://api.cryptota.app/v1',
-       paymentProvider: 'nowpayments'
+       apiBase: 'https://api.cryptota.app',
+       paymentProvider: 'ton'
    };
    ```
 
 3. **Wire UI for login + upgrade:**
-   - Add login button (topbar) → modal with email/password + Google + Apple buttons
+   - Add login button (topbar) → modal with email/password form
    - Add tier badge (topbar) → shows FREE / PRO / LIFETIME
-   - Add upgrade button → opens checkout modal with QR + countdown
+   - Add upgrade button → opens checkout modal with QR + memo
 
-4. **Implement payment provider integration:**
-   - Sign up at NOWPayments.io → get API key + IPN secret
-   - Set IPN callback URL to `https://api.cryptota.app/webhooks/nowpayments`
-   - Sandbox mode for testing: `https://api-sandbox.nowpayments.io`
+4. **Configure TON wallet:**
+   - Get a TON address from any wallet app (Tonkeeper, MyTonWallet, OpenMask)
+   - Set `TON_ADDRESS=<your mainnet wallet>` in server `.env`
+   - That's it — no third-party API keys, no KYC, no sandbox flags
 
 5. **Test flow:**
-   - User clicks "Upgrade to Pro" → backend creates invoice → returns BTC address
-   - User sends testnet BTC to address
-   - NOWPayments calls webhook → backend upgrades user in DB
+   - User clicks "Upgrade to Pro" → backend generates a unique memo → returns TON address + amount
+   - User sends TON from their wallet to that address WITH the memo as comment
+   - Polling worker detects the on-chain tx → marks payment completed → inserts license
    - On next app refresh, `License.refresh()` picks up new tier
 
 ## Why phase 1 ships with no UI
@@ -120,7 +119,7 @@ License.apply({ tier: 'free', userId: null, expiresAt: null });
     apiBase:              null,            // backend URL when ready
     tiers:                { free, pro, lifetime },   // tier limits
     pricing:              { pro_yearly_usd, lifetime_usd },
-    paymentProvider:      'nowpayments',
+    paymentProvider:      'ton',
     onChange(cb):         subscribe to flag changes
 }
 ```
@@ -167,23 +166,24 @@ Session.loginWithApple()
 Session.onChange(cb)                   // subscribe to login/logout events
 ```
 
-## Why NOWPayments?
+## Why direct TON wallet (and not a payment provider)?
 
-- **200+ coins** (BTC, ETH, USDT, SOL, BNB, DOGE, …) — users pay in whatever they have
-- Hosted payment page → no PCI / KYC overhead
-- Webhook for payment confirmation with HMAC signature verification
-- Has sandbox environment for testing without real money
-- ~1% fee (vs Coinbase Commerce ~1% but only 4 coins)
+- **No third-party fees.** Providers like NOWPayments / Coinbase Commerce charge 0.4–1% per payment. For a $3 Pro tier that adds up to nothing, but at scale (and philosophically) we want to keep the money flow crypto-native.
+- **No KYC.** TON direct → no identity verification until TON itself requires it.
+- **Crypto-native UX.** CryptoTA is a crypto tool, our users already hold TON. Charging in USD via a card would feel weird.
+- **Single dependency.** One wallet address + one polling loop. No API keys to rotate, no sandbox flags, no provider downtime.
+- **Trade-off accepted:** users MUST include the memo (16 hex chars) when sending. We surface this prominently in the UI and are planning a `ton://` deep-link so wallets can pre-fill it.
 
-Alternatives:
-- **Coinbase Commerce** — fewer coins, but cleaner API
-- **BTCPay Server** — self-hosted, zero fees, but requires server setup + Lightning node
+Alternatives we considered:
+- **NOWPayments** — 200+ coins, hosted page, but ~0.5% fee + KYC after $1–3k.
+- **Coinbase Commerce** — fewer coins, cleaner API, but US-centric and KYC-heavy.
+- **BTCPay Server** — self-hosted, zero fees, but requires running a Lightning node + server maintenance.
 
 ## Security notes
 
 - Never store the JWT in `localStorage` long-term if you can avoid it — prefer httpOnly cookie issued by backend. Phase 1 uses localStorage because there's no backend yet.
 - License object in localStorage is **not signed** in phase 1 — anyone can flip their tier via DevTools. Acceptable while there's no server-side check; phase 2 must always verify tier from backend, never trust localStorage.
-- HMAC verification on the payment webhook is mandatory. NOWPayments sends `x-nowpayments-sig` header — verify before processing.
+- TON payments are attributed by a unique 16-hex-char memo. If the user sends TON WITHOUT the memo, the payment is unrecoverable — the polling worker cannot match it to any invoice. Keep the memo visible and easy to copy.
 
 ## Future roadmap
 

@@ -1,10 +1,9 @@
 // Integration tests using supertest. Spins up the real app against an
-// in-memory DB (better-sqlite3 supports ':memory:').
+// in-memory DB (sql.js supports ':memory:').
 //
-// We mock NOWPayments so we don't hit the real API in tests.
+// We mock TON / CoinGecko so we don't hit external APIs in tests.
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
 import { rmSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -16,9 +15,7 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-secret-for-integration-tests-12345678';
 process.env.DATABASE_PATH = ':memory:';
 process.env.CORS_ORIGINS = '*';
-process.env.NOWPAYMENTS_API_KEY = 'mock-key';
-process.env.NOWPAYMENTS_IPN_SECRET = 'mock-ipn-secret';
-process.env.NOWPAYMENTS_SANDBOX = 'true';
+process.env.TON_ADDRESS = 'UQAUzzNlRDTwQ6SuRFs3boU8VXYkA40GuFC6JDrpo-HrjGje';
 process.env.PUBLIC_BASE_URL = 'http://localhost:3001';
 process.env.FRONTEND_URL = 'http://localhost:8092';
 
@@ -26,22 +23,14 @@ process.env.FRONTEND_URL = 'http://localhost:8092';
 const { createApp } = await import('../src/index.js');
 const { default: supertest } = await import('supertest');
 const { config } = await import('../src/config.js');
-const { nowpayments } = await import('../src/lib/nowpayments.js');
 const dbModule = await import('../src/lib/db.js');
 
 const api = supertest(await createApp());
 
-// Mock NOWPayments — replace methods we use
-let mockCreatePayment = async (args) => {
-    return {
-        payment_id: 99999,
-        payment_status: 'waiting',
-        pay_address: 'bc1qmockaddress',
-        pay_amount: 0.0001,
-        pay_currency: args.payCurrency,
-    };
-};
-nowpayments.createPayment = mockCreatePayment;
+// Mock the TON helpers — replace what we use in tests.
+// (ESM exports are read-only, so we wrap them via a thin facade imported by
+// the route. For now the integration tests don't exercise the polling worker
+// directly, so we don't need to mock anything.)
 
 // Reset DB between tests — drop all rows so each test starts clean
 async function resetDb() {
@@ -128,110 +117,43 @@ test('GET /api/license/me returns free for unauthenticated', async () => {
 });
 
 // ===== Payments =====
-test('POST /api/payments/create returns payment details', async () => {
+test('POST /api/payments/create returns TON payment details', async () => {
     const reg = await api.post('/api/auth/register').send({ email: 'gina@x.com', password: 'secret12345' });
     const token = reg.body.token;
     const res = await api.post('/api/payments/create')
         .set('Authorization', `Bearer ${token}`)
-        .send({ tier: 'pro', payCurrency: 'btc' });
+        .send({ tier: 'pro', payCurrency: 'ton' });
     assert.equal(res.status, 201);
-    assert.ok(res.body.payment.providerPaymentId);
+    assert.ok(res.body.payment.memo);
     assert.equal(res.body.payment.tier, 'pro');
-    assert.equal(res.body.payment.payAddress, 'bc1qmockaddress');
+    assert.equal(res.body.payment.payAddress, config.ton.address);
+    assert.equal(res.body.payment.payCurrency, 'ton');
+    assert.ok(res.body.payment.payAmount >= 2);
     assert.equal(res.body.payment.status, 'waiting');
+});
+
+test('POST /api/payments/create returns lifetime TON invoice', async () => {
+    const reg = await api.post('/api/auth/register').send({ email: 'gina2@x.com', password: 'secret12345' });
+    const token = reg.body.token;
+    const res = await api.post('/api/payments/create')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ tier: 'lifetime', payCurrency: 'ton' });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.payment.tier, 'lifetime');
+    assert.ok(res.body.payment.payAmount >= 20);
 });
 
 test('POST /api/payments/create rejects invalid tier', async () => {
     const reg = await api.post('/api/auth/register').send({ email: 'hank@x.com', password: 'secret12345' });
     const res = await api.post('/api/payments/create')
         .set('Authorization', `Bearer ${reg.body.token}`)
-        .send({ tier: 'platinum', payCurrency: 'btc' });
+        .send({ tier: 'platinum', payCurrency: 'ton' });
     assert.equal(res.status, 400);
 });
 
 test('POST /api/payments/create requires auth', async () => {
-    const res = await api.post('/api/payments/create').send({ tier: 'pro', payCurrency: 'btc' });
+    const res = await api.post('/api/payments/create').send({ tier: 'pro', payCurrency: 'ton' });
     assert.equal(res.status, 401);
-});
-
-// ===== Webhook — the critical one =====
-test('POST /api/webhooks/nowpayments activates license on finished', async () => {
-    // 1. Register user
-    const reg = await api.post('/api/auth/register').send({ email: 'iris@x.com', password: 'secret12345' });
-    const token = reg.body.token;
-
-    // 2. Create payment
-    const create = await api.post('/api/payments/create')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ tier: 'pro', payCurrency: 'btc' });
-    const internalId = create.body.payment.id;
-
-    // 3. Simulate NOWPayments webhook with valid signature
-    const payload = JSON.stringify({
-        payment_id: 99999,
-        order_id: internalId,
-        payment_status: 'finished',
-        pay_amount: 0.0001,
-        pay_currency: 'btc',
-    });
-    const sig = createHmac('sha512', config.nowpayments.ipnSecret).update(payload).digest('hex');
-
-    const res = await api.post('/api/webhooks/nowpayments')
-        .set('Content-Type', 'application/json')
-        .set('x-nowpayments-sig', sig)
-        .set('x-nowpayments-event-id', 'evt-001')
-        .send(payload);
-    assert.equal(res.status, 200);
-
-    // 4. Verify license is now pro
-    const lic = await api.get('/api/license/me').set('Authorization', `Bearer ${token}`);
-    assert.equal(lic.status, 200);
-    assert.equal(lic.body.tier, 'pro');
-    assert.ok(lic.body.expiresAt);
-});
-
-test('Webhook rejects bad signature', async () => {
-    const payload = JSON.stringify({ payment_id: 1, order_id: 999, payment_status: 'finished' });
-    const res = await api.post('/api/webhooks/nowpayments')
-        .set('Content-Type', 'application/json')
-        .set('x-nowpayments-sig', 'invalidsig')
-        .send(payload);
-    assert.equal(res.status, 401);
-});
-
-test('Webhook is idempotent on duplicate event_id', async () => {
-    const reg = await api.post('/api/auth/register').send({ email: 'jack@x.com', password: 'secret12345' });
-    const create = await api.post('/api/payments/create')
-        .set('Authorization', `Bearer ${reg.body.token}`)
-        .send({ tier: 'lifetime', payCurrency: 'eth' });
-    const internalId = create.body.payment.id;
-
-    const payload = JSON.stringify({
-        payment_id: 99999,
-        order_id: internalId,
-        payment_status: 'finished',
-    });
-    const sig = createHmac('sha512', config.nowpayments.ipnSecret).update(payload).digest('hex');
-
-    // First call
-    const r1 = await api.post('/api/webhooks/nowpayments')
-        .set('Content-Type', 'application/json')
-        .set('x-nowpayments-sig', sig).set('x-nowpayments-event-id', 'evt-dup')
-        .send(payload);
-    assert.equal(r1.status, 200);
-
-    // Second call with same event_id — should ACK but skip activation
-    const r2 = await api.post('/api/webhooks/nowpayments')
-        .set('Content-Type', 'application/json')
-        .set('x-nowpayments-sig', sig).set('x-nowpayments-event-id', 'evt-dup')
-        .send(payload);
-    assert.equal(r2.status, 200);
-
-    // Verify only ONE license was created
-    const lic = await api.get('/api/license/me').set('Authorization', `Bearer ${reg.body.token}`);
-    assert.equal(lic.body.tier, 'lifetime');
-    const hist = await api.get('/api/license/history').set('Authorization', `Bearer ${reg.body.token}`);
-    assert.equal(hist.body.licenses.length, 1);
 });
 
 // Force exit — sql.js keeps wasm alive otherwise

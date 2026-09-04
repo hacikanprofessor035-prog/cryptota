@@ -358,7 +358,7 @@ export async function listLicenses(userId, limit = 20) {
         [userId, limit]);
 }
 
-export async function createPayment({ userId, tier, amountUsd, provider = 'nowpayments' }) {
+export async function createPayment({ userId, tier, amountUsd, provider = 'ton' }) {
     await getDb();
     const now = new Date().toISOString();
     execStmt(_db,

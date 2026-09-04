@@ -41,7 +41,7 @@ export async function createApp() {
         next();
     });
 
-    // IMPORTANT: webhooks must receive the raw body BEFORE express.json() runs.
+    // Reserved for future webhook routes (e.g. TonAPI push notifications).
     app.use('/api/webhooks', webhooksRouter);
 
     // Everything else uses JSON

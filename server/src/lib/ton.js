@@ -167,18 +167,40 @@ export async function checkIncoming({ memo, minNanoTon, sinceLt = null, sinceUti
     return { found, newestUt, newestLt: lt, newestHash: hash };
 }
 
-/** Decode base64 comment to string. toncenter stores it as base64 of utf8. */
-function decodeComment(b64) {
-    if (!b64 || typeof b64 !== 'string') return null;
-    // toncenter returns either base64 ("abcd...") or hex. Try base64 first.
+/**
+ * Decode the `message` field from toncenter's getTransactions response.
+ *
+ * Toncenter returns `in_msg.message` in TWO possible encodings depending on
+ * version / endpoint — empirically we see HEX more often (the actual hex bytes
+ * of the comment string), but legacy responses use BASE64 (utf8 → base64).
+ * Either way, the underlying string is our 16-char lowercase hex memo.
+ *
+ * Detection order:
+ *   1. Pure hex of expected length → use as-is.
+ *   2. Base64 that decodes to our hex → use decoded.
+ *   3. Anything else → ignore.
+ */
+function decodeComment(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+
+    // (1) Already a plain hex string
+    if (/^[0-9a-f]{16}$/i.test(trimmed)) return trimmed.toLowerCase();
+
+    // (2) Pure hex bytes (may be any even length) → utf8 = our memo
+    if (/^[0-9a-f]+$/i.test(trimmed) && trimmed.length % 2 === 0) {
+        try {
+            const s = Buffer.from(trimmed, 'hex').toString('utf8').trim();
+            if (/^[0-9a-f]{16}$/i.test(s)) return s.toLowerCase();
+        } catch { /* fall through */ }
+    }
+
+    // (3) Base64 of utf8 (legacy format)
     try {
-        const buf = Buffer.from(b64, 'base64');
-        const s = buf.toString('utf8').trim();
-        // Only accept printable hex string of expected length.
+        const s = Buffer.from(trimmed, 'base64').toString('utf8').trim();
         if (/^[0-9a-f]{16}$/i.test(s)) return s.toLowerCase();
     } catch { /* fall through */ }
-    // Maybe it's already plain text or hex.
-    if (/^[0-9a-f]{16}$/i.test(b64.trim())) return b64.trim().toLowerCase();
+
     return null;
 }
 

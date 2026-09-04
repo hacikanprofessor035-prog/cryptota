@@ -1,13 +1,9 @@
-// /api/webhooks/* — future-proof webhook router.
+// /api/webhooks/* — reserved for future push-based payment notifications.
 //
-// We previously received NOWPayments IPN callbacks here. After switching to
-// direct TON payments there is no third-party webhook source, but we keep
-// the router in place so we can later add things like:
-//   - TonAPI webhook (https://tonapi.io) for push-based payment notifications
-//   - TON HTTP-API webhooks if we ever self-host one
-//
-// For now, all payment activation is handled by the polling worker in
-// routes/payments.js.
+// We currently use our own polling worker in routes/payments.js to detect
+// incoming TON transactions. This router is kept as a placeholder so we can
+// later add things like TonAPI webhooks (https://tonapi.io) without changing
+// the route layout.
 import { Router } from 'express';
 
 export const webhooksRouter = Router();

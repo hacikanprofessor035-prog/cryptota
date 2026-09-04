@@ -30,8 +30,7 @@ const schema = z.object({
 
     CORS_ORIGINS: z.string().default('*'),
 
-    // TON direct payment (replaces our previous NOWPayments integration).
-    // Single static wallet address; users send TON with a unique memo.
+    // TON direct payment: single static wallet, users send TON with a unique memo.
     TON_ADDRESS: z.string().default(''),
 
     PUBLIC_BASE_URL: z.string().default('http://localhost:3001'),
