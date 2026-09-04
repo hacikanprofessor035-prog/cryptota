@@ -832,22 +832,28 @@ body.sidebar-hidden .show-sidebar-btn {
     border-radius: var(--radius-sm);
     padding: 8px;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    aspect-ratio: 1;
+    justify-content: flex-start;
+    gap: 6px;
 }
-.checkout-qr img { width: 100%; height: 100%; display: block; }
+.checkout-qr img {
+    width: 100%;
+    aspect-ratio: 1;
+    display: block;
+    border-radius: 2px;
+}
 .checkout-open-wallet {
-    display: inline-block;
-    margin-top: 8px;
-    padding: 6px 12px;
+    margin-top: 2px;
+    padding: 5px 10px;
     border-radius: var(--radius-sm);
     background: var(--bg-elev-1, #1a1a1f);
     color: var(--text-1, #e6e6e6);
-    font-size: 12px;
+    font-size: 11px;
     text-decoration: none;
     border: 1px solid var(--border-1, #2a2a30);
     transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
 }
 .checkout-open-wallet:hover {
     background: var(--bg-elev-2, #25252b);
