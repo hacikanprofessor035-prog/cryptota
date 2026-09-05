@@ -38,9 +38,12 @@ window.CryptoTA_CONFIG = {
 
     // ===== Backend (Phase 2) =====
     // Public URL of the deployed backend.
-    // - DuckDNS HTTPS endpoint (Caddy terminates TLS, proxies to Node on :3001)
-    //   This avoids mixed-content issues when serving from HTTPS-only pages.dev.
-    apiBase: 'https://cryptota-app.duckdns.org',
+    // - Empty: requests hit the SAME origin (cryptota.pages.dev) and are
+    //   proxied via Cloudflare Pages Function (functions/api/[[path]].js)
+    //   to the VPS backend. This is the production setup (no DNS issues,
+    //   no DuckDNS, no TLS — Cloudflare handles everything on the edge).
+    // - Set to a full URL to bypass the proxy (e.g. direct VPS via DuckDNS).
+    apiBase: '',
 
     // ===== Payment provider endpoint paths (relative to apiBase) =====
     endpoints: {
