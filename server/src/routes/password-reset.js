@@ -89,10 +89,12 @@ passwordResetRouter.post('/forgot-password', async (req, res, next) => {
         `;
 
         await sendEmail({ to: email, subject, html });
+        console.log(`[password-reset] code ${code} emailed to ${email}`);
 
         // Generic OK — never reveal whether the email exists or was sent.
         res.json({ ok: true });
     } catch (err) {
+        console.error(`[password-reset] forgot-password failed for ${email || 'unknown'}:`, err.message);
         next(err);
     }
 });
