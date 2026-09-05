@@ -37,10 +37,10 @@ window.CryptoTA_CONFIG = {
     freeUnlimitedOverride: true,
 
     // ===== Backend (Phase 2) =====
-    // Public URL of the deployed backend (Railway). NO trailing slash.
-    // '' = same-origin (Netlify redirects /api/* to VPS via _redirects file).
-    // Set to full URL (e.g. 'https://api.cryptota.app') to bypass the proxy.
-    apiBase: '',
+    // Public URL of the deployed backend.
+    // - DuckDNS HTTPS endpoint (Caddy terminates TLS, proxies to Node on :3001)
+    //   This avoids mixed-content issues when serving from HTTPS-only pages.dev.
+    apiBase: 'https://cryptota-app.duckdns.org',
 
     // ===== Payment provider endpoint paths (relative to apiBase) =====
     endpoints: {
