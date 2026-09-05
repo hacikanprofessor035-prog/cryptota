@@ -175,22 +175,52 @@ function serializePayment(row) {
     };
 }
 
-/* ============ Polling worker ============ */
+/* ============ Polling worker ============
+ *
+ * toncenter.com free tier is rate-limited (~5 requests / second, but
+ * sustained polling gets a 429 quickly). We poll at a comfortable cadence
+ * AND back off aggressively when we hit a 429 — recent logs showed 429s
+ * every cycle on the 15-second schedule, which was just noise.
+ *
+ * Cadence:
+ *   - Healthy: every POLL_INTERVAL_MS (60 s)
+ *   - After 429: back off to BACKOFF_AFTER_429_MS (5 min)
+ *   - Still 429? 10 min, then 15 min, then 20 min (capped at BACKOFF_MAX_MS)
+ *   - One successful poll resets the backoff
+ */
+
+const POLL_INTERVAL_MS = 60_000;          // 1 min when healthy
+const BACKOFF_AFTER_429_MS = 5 * 60_000;  // 5 min after first 429
+const BACKOFF_MAX_MS = 20 * 60_000;       // cap at 20 min
 
 let _pollTimer = null;
 let _pollInProgress = false;
+let _nextDelay = POLL_INTERVAL_MS;        // current delay until next poll
+
+function scheduleNext() {
+    if (_pollTimer) clearTimeout(_pollTimer);
+    _pollTimer = setTimeout(pollOnce, _nextDelay);
+}
 
 async function pollOnce() {
-    if (_pollInProgress) return;
-    if (!config.ton.address) return;
+    if (_pollInProgress) {
+        // If a poll is somehow still running, just chain another tick.
+        return scheduleNext();
+    }
+    if (!config.ton.address) {
+        // No TON configured — sleep and try again later.
+        _nextDelay = POLL_INTERVAL_MS;
+        return scheduleNext();
+    }
     _pollInProgress = true;
+    let sawRateLimit = false;
     try {
         const pending = await db.listPendingPayments();
-        if (pending.length === 0) return;
-
-        // Use the oldest pending payment's checkpoint so we only scan once
-        // and walk forward. Individual rows track their own lastSeenLt/Ut.
-        const checkpoint = await db.getPollCheckpoint();
+        if (pending.length === 0) {
+            // Nothing to do — healthy tick.
+            _nextDelay = POLL_INTERVAL_MS;
+            return;
+        }
 
         // For simplicity: check each pending payment in turn. Cheap for our
         // scale (≤ a few dozen at a time).
@@ -214,13 +244,43 @@ async function pollOnce() {
                 }
             } catch (e) {
                 console.error(`[payments] poll error for #${p.id}:`, e.message);
+                if (e.status === 429 || /429|rate.?limit/i.test(String(e.message))) {
+                    sawRateLimit = true;
+                }
             }
         }
         await db.setPollCheckpoint(Date.now());
     } catch (e) {
-        console.error('[payments] poll loop error:', e);
+        console.error('[payments] poll loop error:', e.message);
+        if (e.status === 429 || /429|rate.?limit/i.test(String(e.message))) {
+            sawRateLimit = true;
+        }
     } finally {
         _pollInProgress = false;
+        if (sawRateLimit) {
+            // Double the delay on each consecutive 429, capped at BACKOFF_MAX_MS.
+            _nextDelay = Math.min(Math.max(_nextDelay * 2, BACKOFF_AFTER_429_MS), BACKOFF_MAX_MS);
+            console.warn(`[payments] rate limited by toncenter — next poll in ${(_nextDelay / 1000).toFixed(0)}s`);
+        } else {
+            _nextDelay = POLL_INTERVAL_MS;
+        }
+        scheduleNext();
+    }
+}
+
+export function startPaymentPolling() {
+    if (_pollTimer) return;
+    // First run after 2s so the server is ready.
+    setTimeout(pollOnce, 2_000);
+    // Then schedule normal cadence.
+    _pollTimer = setTimeout(pollOnce, POLL_INTERVAL_MS + 2_000);
+    console.log(`[payments] TON polling worker started (every ${(POLL_INTERVAL_MS / 1000).toFixed(0)}s, backs off on 429)`);
+}
+
+export function stopPaymentPolling() {
+    if (_pollTimer) {
+        clearTimeout(_pollTimer);
+        _pollTimer = null;
     }
 }
 
@@ -246,19 +306,4 @@ async function activatePayment(p, tx) {
         completed_at: Date.now(),
     });
     console.log(`[payments] ✅ payment #${p.id} completed (user=${p.user_id} tier=${p.tier})`);
-}
-
-export function startPaymentPolling() {
-    if (_pollTimer) return;
-    _pollTimer = setInterval(pollOnce, 15_000);
-    // First run after 2s so the server is ready.
-    setTimeout(pollOnce, 2_000);
-    console.log('[payments] TON polling worker started (every 15s)');
-}
-
-export function stopPaymentPolling() {
-    if (_pollTimer) {
-        clearInterval(_pollTimer);
-        _pollTimer = null;
-    }
 }
