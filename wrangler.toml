@@ -1,0 +1,8 @@
+name = "cryptota"
+compatibility_date = "2026-09-05"
+pages_build_output_dir = "."
+
+# Static site — Cloudflare Pages serves index.html, css/, js/ directly.
+# API proxying is handled by a Cloudflare Tunnel (cloudflared) running on the VPS,
+# which exposes 185.192.22.193 as cryptota-api.<your-domain>.com over HTTPS.
+# Set apiBase in js/config.js to that hostname once the tunnel is live.
