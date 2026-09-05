@@ -1284,6 +1284,31 @@ body.sidebar-hidden .show-sidebar-btn {
 }
 .auth-toggle a:hover { text-decoration: underline; }
 
+/* Forgot password link inside the login form */
+.auth-forgot {
+    text-align: right;
+    margin-top: -4px;
+    margin-bottom: 8px;
+}
+.auth-forgot a {
+    color: var(--text-2);
+    text-decoration: none;
+    font-size: 11px;
+    transition: color 0.15s;
+}
+.auth-forgot a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+/* Subtitle line in the reset modal (matches accent style of other secondary text) */
+.auth-subtitle {
+    color: var(--text-2);
+    font-size: 12px;
+    margin: -4px 0 16px 0;
+    text-align: center;
+}
+
 /* Authenticated user block */
 .auth-user-info {
     display: flex;

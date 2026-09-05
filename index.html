@@ -346,6 +346,9 @@
                     <input type="email" name="email" placeholder="Email" required autocomplete="email">
                     <input type="password" name="password" placeholder="Password" required autocomplete="current-password">
                     <button type="submit" class="auth-btn-primary">Sign in</button>
+                    <div class="auth-forgot">
+                        <a href="#" id="forgotPasswordLink">Forgot password?</a>
+                    </div>
                 </form>
 
                 <form class="auth-form" id="registerForm" style="display:none;" autocomplete="on">
@@ -360,6 +363,24 @@
                     <a href="#" id="toggleToRegister">Sign up</a>
                     <a href="#" id="toggleToLogin" style="display:none;">Sign in</a>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password reset modal: opened after "Forgot password?" sends the code -->
+    <div class="modal-overlay" id="resetModal" style="display:none;">
+        <div class="modal-card auth-card">
+            <button class="modal-close" id="closeResetModal" aria-label="Close">×</button>
+            <div class="modal-body">
+                <h2>Reset password</h2>
+                <p class="auth-subtitle">Enter the 6-digit code we emailed you.</p>
+                <form class="auth-form" id="resetForm" autocomplete="on">
+                    <input type="email" id="resetEmail" placeholder="Email" required autocomplete="email" readonly>
+                    <input type="text" id="resetCode" placeholder="6-digit code" required pattern="\d{6}" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                    <input type="password" id="resetNewPassword" placeholder="New password (min 8 chars)" required minlength="8" autocomplete="new-password">
+                    <button type="submit" class="auth-btn-primary">Set new password</button>
+                </form>
+                <div class="auth-error" id="resetError"></div>
             </div>
         </div>
     </div>

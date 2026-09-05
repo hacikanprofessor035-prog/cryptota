@@ -9,6 +9,7 @@ import * as db from './lib/db.js';
 import { getDb, closeDb } from './lib/db.js';
 import { authMiddleware } from './lib/auth.js';
 import { authRouter } from './routes/auth.js';
+import { passwordResetRouter } from './routes/password-reset.js';
 import { licenseRouter } from './routes/license.js';
 import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.js';
 import { webhooksRouter } from './routes/webhooks.js';
@@ -61,6 +62,7 @@ export async function createApp() {
     });
 
     app.use('/api/auth', authRouter);
+    app.use('/api/auth', passwordResetRouter);
     app.use('/api/license', licenseRouter);
     app.use('/api/payments', paymentsRouter);
     app.use('/api/admin', adminRouter);

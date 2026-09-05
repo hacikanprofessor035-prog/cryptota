@@ -181,6 +181,28 @@ const MIGRATIONS = [
             ALTER TABLE licenses ADD COLUMN tier_text TEXT;
         `,
     },
+    {
+        // v4: password reset flow — one-time 6-digit codes emailed to the user.
+        // We store the SHA-256 of the code, not the plaintext, so a DB dump
+        // doesn't reveal usable reset codes (codes have a 15-minute TTL anyway).
+        version: 4,
+        name: 'password reset codes',
+        sql: `
+            CREATE TABLE password_resets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                code_hash TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                used_at TEXT,
+                created_at TEXT NOT NULL,
+                ip TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_password_resets_email ON password_resets(email, created_at);
+            CREATE INDEX idx_password_resets_expires ON password_resets(expires_at);
+        `,
+    },
 ];
 
 // ===== Helpers (sync, on an already-loaded db) =====
@@ -493,4 +515,59 @@ export async function _resetForTests() {
     if (config.db.path !== ':memory:' && existsSync(config.db.path)) {
         writeFileSync(config.db.path, Buffer.alloc(0));
     }
+}
+
+// ===== Password reset codes =====
+// One-time 6-digit codes stored as SHA-256 hashes (not plaintext) with a
+// 15-minute TTL. Rate-limited at the route layer (3/hour per email).
+
+export async function createPasswordReset({ userId, email, codeHash, expiresAt, ip }) {
+    await getDb();
+    const now = new Date().toISOString();
+    execStmt(_db,
+        `INSERT INTO password_resets (user_id, email, code_hash, expires_at, created_at, ip)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [userId, email.toLowerCase(), codeHash, expiresAt, now, ip || null]);
+    scheduleWrite();
+    return queryOne(_db, 'SELECT last_insert_rowid() AS id');
+}
+
+// Count reset codes for an email in the last hour (for rate limiting).
+export async function countRecentResetAttempts(email, sinceIso) {
+    await getDb();
+    const r = queryOne(_db,
+        `SELECT COUNT(*) AS c FROM password_resets WHERE email = ? AND created_at >= ?`,
+        [email.toLowerCase(), sinceIso]);
+    return r ? Number(r.c) : 0;
+}
+
+// Look up the most recent valid (unused, unexpired) reset code for an email.
+// We hash the candidate code on the caller side and pass the hash here.
+export async function findValidResetCode({ email, codeHash }) {
+    await getDb();
+    return queryOne(_db,
+        `SELECT * FROM password_resets
+         WHERE email = ?
+           AND code_hash = ?
+           AND used_at IS NULL
+           AND expires_at > datetime('now')
+         ORDER BY created_at DESC LIMIT 1`,
+        [email.toLowerCase(), codeHash]);
+}
+
+export async function markResetCodeUsed(id) {
+    await getDb();
+    execStmt(_db,
+        `UPDATE password_resets SET used_at = ? WHERE id = ?`,
+        [new Date().toISOString(), id]);
+    scheduleWrite();
+}
+
+// Update the user's password_hash by user id.
+export async function updatePasswordHash(userId, passwordHash) {
+    await getDb();
+    execStmt(_db,
+        `UPDATE users SET password_hash = ? WHERE id = ?`,
+        [passwordHash, userId]);
+    scheduleWrite();
 }

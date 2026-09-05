@@ -384,6 +384,88 @@ const UI = (() => {
         showToast('Signed out');
     }
 
+    /* ============ Password reset (forgot / set new) ============ */
+
+    async function onForgotPasswordClick(e) {
+        e.preventDefault();
+        const form = document.getElementById('loginForm');
+        const email = form.email.value.trim();
+        const errEl = document.getElementById('authError');
+        errEl.textContent = '';
+        if (!email) {
+            errEl.textContent = 'Enter your email first';
+            return;
+        }
+        try {
+            const r = await fetch(`${CryptoTA_CONFIG.apiBase}/api/auth/forgot-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email }),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (r.status === 503) {
+                errEl.textContent = 'Password reset is not configured on this server yet.';
+                return;
+            }
+            // Generic ok — close login form, open reset form pre-filled with the email
+            closeModal('authModal');
+            openResetPasswordModal(email);
+            showToast('Check your email for the code');
+        } catch (err) {
+            errEl.textContent = 'Network error — try again';
+        }
+    }
+
+    function openResetPasswordModal(email) {
+        const m = document.getElementById('resetModal');
+        if (!m) return;
+        document.getElementById('resetEmail').value = email;
+        document.getElementById('resetCode').value = '';
+        document.getElementById('resetNewPassword').value = '';
+        document.getElementById('resetError').textContent = '';
+        openModal('resetModal');
+        setTimeout(() => document.getElementById('resetCode')?.focus(), 100);
+    }
+
+    function closeResetPasswordModal() {
+        closeModal('resetModal');
+    }
+
+    async function onResetPasswordSubmit(e) {
+        e.preventDefault();
+        const form = e.target;
+        const email = document.getElementById('resetEmail').value.trim();
+        const code = document.getElementById('resetCode').value.trim();
+        const newPassword = document.getElementById('resetNewPassword').value;
+        const errEl = document.getElementById('resetError');
+        errEl.textContent = '';
+        if (!code.match(/^\d{6}$/)) {
+            errEl.textContent = 'Enter the 6-digit code from your email';
+            return;
+        }
+        if (newPassword.length < 8) {
+            errEl.textContent = 'Password must be at least 8 characters';
+            return;
+        }
+        try {
+            const r = await fetch(`${CryptoTA_CONFIG.apiBase}/api/auth/reset-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, code, newPassword }),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                errEl.textContent = data.error || 'Reset failed';
+                return;
+            }
+            closeResetPasswordModal();
+            showToast('Password updated — you can sign in now');
+            setTimeout(() => openModal('authModal'), 600);
+        } catch (err) {
+            errEl.textContent = 'Network error — try again';
+        }
+    }
+
     /* ============ Toast (re-export for UI) ============ */
 
     function showToast(msg, ms) {
@@ -498,6 +580,18 @@ const UI = (() => {
         // ESC closes any modal
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') closeAllModals();
+        });
+
+        // Password reset bindings
+        const forgotLink = document.getElementById('forgotPasswordLink');
+        if (forgotLink) forgotLink.addEventListener('click', onForgotPasswordClick);
+        const resetForm = document.getElementById('resetForm');
+        if (resetForm) resetForm.addEventListener('submit', onResetPasswordSubmit);
+        const closeReset = document.getElementById('closeResetModal');
+        if (closeReset) closeReset.addEventListener('click', closeResetPasswordModal);
+        const resetModalEl = document.getElementById('resetModal');
+        if (resetModalEl) resetModalEl.addEventListener('click', (e) => {
+            if (e.target.id === 'resetModal') closeResetPasswordModal();
         });
 
         // React to license / session changes

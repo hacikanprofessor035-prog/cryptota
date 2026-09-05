@@ -35,6 +35,13 @@ const schema = z.object({
 
     PUBLIC_BASE_URL: z.string().default('http://localhost:3001'),
     FRONTEND_URL: z.string().default('http://localhost:8092'),
+
+    // ===== Email (Brevo SMTP) — used for password reset flow =====
+    // Brevo SMTP key for sending transactional email. Optional: when not set,
+    // /api/auth/forgot-password returns a 503 (feature disabled).
+    BREVO_SMTP_KEY: z.string().optional(),
+    BREVO_FROM_EMAIL: z.string().email().default('hacikanprofessor035@gmail.com'),
+    BREVO_FROM_NAME: z.string().default('CryptoTA'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -81,6 +88,18 @@ export const config = {
 
     ton: {
         address: env.TON_ADDRESS,
+    },
+
+    email: {
+        smtpKey: env.BREVO_SMTP_KEY || '',
+        fromEmail: env.BREVO_FROM_EMAIL,
+        fromName: env.BREVO_FROM_NAME,
+        // Brevo SMTP endpoint (TLS, port 587). We use their transactional gateway.
+        smtpHost: 'smtp-relay.brevo.com',
+        smtpPort: 587,
+        // Brevo SMTP uses the key as BOTH username and password (their relay
+        // // pattern — the key is a single-use credential, not a real password).
+        smtpUser: env.BREVO_SMTP_KEY ? env.BREVO_SMTP_KEY.split('-')[0] + '-' + env.BREVO_SMTP_KEY.split('-')[1] : '',
     },
 
     publicBaseUrl: env.PUBLIC_BASE_URL,
