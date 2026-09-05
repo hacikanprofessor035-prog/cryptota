@@ -1,59 +1,73 @@
-// Email sender via Brevo SMTP (smtp-relay.brevo.com).
-// Used by /api/auth/forgot-password to deliver a one-time reset code.
+// Email sender via Brevo HTTPS API (api.brevo.com/v3/smtp/email).
 //
-// We import nodemailer lazily so the rest of the app boots even when the
-// optional SMTP dependency is missing (dev environments that don't send
-// email). When BREVO_SMTP_KEY is unset, sendEmail() throws a friendly
-// error and the route returns 503.
-import nodemailer from 'nodemailer';
+// We use the HTTPS API rather than SMTP because the VPS provider blocks
+// outbound SMTP traffic (ports 465, 587, 2525) — a common anti-spam
+// measure. The API works over plain HTTPS (port 443) and is not blocked.
+//
+// Docs: https://developers.brevo.com/reference/sendtransacemail
+//
+// Authentication: api-key header. The key is created in Brevo dashboard
+// under Settings -> SMTP & API -> API Keys, with at least the
+// "Transactional: write" scope.
+//
+// The HTTPS transport is `fetch` (Node 22 has it built-in), so we have
+// no extra runtime deps.
+
 import { config } from '../config.js';
 
-let _transporter = null;
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-function getTransporter() {
-    if (_transporter) return _transporter;
-    if (!config.email.smtpKey) {
-        throw new Error('Email not configured (BREVO_SMTP_KEY missing)');
-    }
-    _transporter = nodemailer.createTransport({
-        host: config.email.smtpHost,
-        port: config.email.smtpPort,
-        secure: false,         // STARTTLS
-        requireTLS: true,
-        auth: {
-            // Brevo's transactional SMTP uses the key directly as the
-            // username; the "password" is the same key string.
-            user: config.email.smtpKey,
-            pass: config.email.smtpKey,
-        },
-        tls: {
-            // Don't fail on self-signed (Brevo uses a valid CA but be lenient)
-            rejectUnauthorized: true,
-        },
-    });
-    return _transporter;
+export function isEmailEnabled() {
+    return Boolean(config.email?.apiKey && config.email?.fromEmail);
 }
 
 /**
  * Send a transactional email.
- * @param {string} to       Recipient email
- * @param {string} subject  Plain-text subject
- * @param {string} html     HTML body
+ * @param {object} opts
+ * @param {string} opts.to        — recipient email
+ * @param {string} opts.subject
+ * @param {string} opts.html      — HTML body
+ * @param {string} [opts.text]    — plain-text fallback (Brevo derives from html if omitted)
+ * @param {string} [opts.replyTo] — reply-to address
  * @returns {Promise<{messageId: string}>}
+ * @throws if the API call fails (caller should catch + log)
  */
-export async function sendEmail({ to, subject, html }) {
-    const transporter = getTransporter();
-    const info = await transporter.sendMail({
-        from: `"${config.email.fromName}" <${config.email.fromEmail}>`,
-        to,
-        subject,
-        html,
-        // Brevo accepts a plain-text fallback (recommended for deliverability)
-        text: html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(),
-    });
-    return { messageId: info.messageId };
-}
+export async function sendEmail({ to, subject, html, text, replyTo }) {
+    if (!isEmailEnabled()) {
+        throw new Error('Email is not configured (missing api key or from address)');
+    }
 
-export function isEmailEnabled() {
-    return !!config.email.smtpKey;
+    const body = {
+        sender: {
+            email: config.email.fromEmail,
+            name: config.email.fromName || 'CryptoTA',
+        },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+    };
+    if (text) body.textContent = text;
+    if (replyTo) body.replyTo = { email: replyTo };
+
+    const r = await fetch(BREVO_API_URL, {
+        method: 'POST',
+        headers: {
+            'api-key': config.email.apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify(body),
+        // 10s is generous — Brevo usually responds in <2s.
+        signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!r.ok) {
+        // Brevo returns JSON with a `message` field; include it for diagnostics.
+        let errText;
+        try { errText = await r.text(); } catch { errText = '<unreadable>'; }
+        throw new Error(`Brevo API ${r.status}: ${errText.slice(0, 500)}`);
+    }
+
+    const data = await r.json().catch(() => ({}));
+    return { messageId: data.messageId || null };
 }

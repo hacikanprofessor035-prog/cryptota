@@ -36,10 +36,20 @@ const schema = z.object({
     PUBLIC_BASE_URL: z.string().default('http://localhost:3001'),
     FRONTEND_URL: z.string().default('http://localhost:8092'),
 
-    // ===== Email (Brevo SMTP) — used for password reset flow =====
-    // Brevo SMTP key for sending transactional email. Optional: when not set,
-    // /api/auth/forgot-password returns a 503 (feature disabled).
-    BREVO_SMTP_KEY: z.string().optional(),
+    // ===== Email (Brevo HTTPS API) — used for password reset flow =====
+    // The VPS blocks outbound SMTP, so we use Brevo's HTTPS API instead
+    // (https://developers.brevo.com/reference/sendtransacemail). Works
+    // through port 443, no SMTP firewall issues.
+    //
+    // Get your key at: https://app.brevo.com/settings/keys/api
+    // Required scope: "Transactional: write" (or "SMTP: write" — they share
+    // the same key, but the transactional scope is the minimal one).
+    //
+    // We still accept BREVO_SMTP_KEY for backwards compatibility — the
+    // xsmtpsib-... format works as both SMTP password AND API key on
+    // Brevo, so we use it for the API call when the new var isn't set.
+    BREVO_API_KEY: z.string().optional(),
+    BREVO_SMTP_KEY: z.string().optional(), // legacy / alias
     BREVO_FROM_EMAIL: z.string().email().default('hacikanprofessor035@gmail.com'),
     BREVO_FROM_NAME: z.string().default('CryptoTA'),
 });
@@ -91,15 +101,11 @@ export const config = {
     },
 
     email: {
-        smtpKey: env.BREVO_SMTP_KEY || '',
+        // Prefer BREVO_API_KEY, fall back to BREVO_SMTP_KEY (the xsmtpsib-...
+        // format works as both SMTP password and HTTPS API key on Brevo).
+        apiKey: env.BREVO_API_KEY || env.BREVO_SMTP_KEY || '',
         fromEmail: env.BREVO_FROM_EMAIL,
         fromName: env.BREVO_FROM_NAME,
-        // Brevo SMTP endpoint (TLS, port 587). We use their transactional gateway.
-        smtpHost: 'smtp-relay.brevo.com',
-        smtpPort: 587,
-        // Brevo SMTP uses the key as BOTH username and password (their relay
-        // // pattern — the key is a single-use credential, not a real password).
-        smtpUser: env.BREVO_SMTP_KEY ? env.BREVO_SMTP_KEY.split('-')[0] + '-' + env.BREVO_SMTP_KEY.split('-')[1] : '',
     },
 
     publicBaseUrl: env.PUBLIC_BASE_URL,
