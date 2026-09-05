@@ -403,6 +403,13 @@ const App = (() => {
             return tb - ta;
         });
 
+        // Compute max quoteVolume for bar widths (only among currently visible rows)
+        let maxVol = 0;
+        for (const p of filtered) {
+            const v = state.tickers[p.symbol]?.quoteVolume || 0;
+            if (v > maxVol) maxVol = v;
+        }
+
         if (!filtered.length) {
             list.innerHTML = '<div class="empty-state">Nothing found</div>';
             return;
@@ -412,8 +419,12 @@ const App = (() => {
             const t = state.tickers[p.symbol];
             const last = t ? t.last : null;
             const change = t ? t.change : null;
+            const vol = t ? t.quoteVolume : null;
             const cls = change > 0 ? 'up' : (change < 0 ? 'down' : 'flat');
             const sign = change > 0 ? '+' : '';
+            // Bar width: 0..100% relative to max volume of visible list
+            const pct = (vol && maxVol > 0) ? Math.max(4, Math.min(100, (vol / maxVol) * 100)) : 0;
+            const barCls = change > 0 ? 'buy' : (change < 0 ? 'sell' : '');
             return `
                 <div class="pair-row ${p.symbol === state.activePair ? 'active' : ''}" data-symbol="${p.symbol}">
                     <div class="pair-symbol">
@@ -422,6 +433,10 @@ const App = (() => {
                     </div>
                     <div class="pair-price">${last !== null ? formatPrice(last) : '—'}</div>
                     <div class="pair-change ${cls}">${change !== null ? sign + change.toFixed(2) + '%' : '—'}</div>
+                    <div class="pair-volume">
+                        ${vol ? `<div class="pair-volume-bar ${barCls}" style="width:${pct}%"></div>` : ''}
+                        <span class="pair-volume-text">${vol !== null ? formatVolume(vol) : '—'}</span>
+                    </div>
                 </div>
             `;
         }).join('');
@@ -855,6 +870,15 @@ const App = (() => {
         if (p >= 1) return p.toFixed(4);
         if (p >= 0.01) return p.toFixed(5);
         return p.toFixed(8);
+    }
+
+    // Compact volume: 1.23B, 45.6M, 789K, 123
+    function formatVolume(v) {
+        if (v == null || isNaN(v)) return '—';
+        if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+        if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+        if (v >= 1e3) return (v / 1e3).toFixed(2) + 'K';
+        return v.toFixed(0);
     }
 
     return { init };
