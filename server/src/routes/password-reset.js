@@ -20,6 +20,22 @@ import * as db from '../lib/db.js';
 import { hashPassword } from '../lib/auth.js';
 import { sendEmail, isEmailEnabled } from '../lib/email.js';
 
+// Force line-buffered stdout so journald sees the logs immediately.
+// Without this, Node's TTY detection delays log lines until the buffer
+// fills, which can be tens of seconds.
+if (process.stdout._handle?.setBlocking) {
+    process.stdout._handle.setBlocking(true);
+}
+process.stderr._handle?.setBlocking?.(true);
+
+function log(...args) {
+    // [password-reset] prefix so the line is greppable
+    process.stdout.write('[password-reset] ' + args.join(' ') + '\n');
+}
+function logErr(...args) {
+    process.stderr.write('[password-reset] ' + args.join(' ') + '\n');
+}
+
 export const passwordResetRouter = Router();
 
 const RESET_TTL_MINUTES = 15;
@@ -32,16 +48,20 @@ const forgotSchema = z.object({
 
 passwordResetRouter.post('/forgot-password', async (req, res, next) => {
     try {
+        log('forgot-password called from', req.ip);
         if (!isEmailEnabled()) {
+            logErr('email not enabled, returning 503');
             return res.status(503).json({ error: 'Email service not configured on this server' });
         }
         const parsed = forgotSchema.safeParse(req.body);
         if (!parsed.success) {
-            // Still 200 — don't reveal whether input was valid.
+            log('invalid body, silently ok');
             return res.json({ ok: true });
         }
         const { email } = parsed.data;
+        log('looking up user', email);
         const user = await db.getByEmail(email);
+        log('user lookup result:', user ? `found id=${user.id}` : 'not found');
 
         // User not found → silently succeed (no enumeration leak)
         if (!user) {
@@ -51,10 +71,9 @@ passwordResetRouter.post('/forgot-password', async (req, res, next) => {
         // Rate limit: max 3 codes per email per hour
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const recent = await db.countRecentResetAttempts(email, oneHourAgo);
+        log('recent attempts:', recent);
         if (recent >= RATE_LIMIT_PER_HOUR) {
-            // Still 200 to the client (don't leak rate-limit state), but skip
-            // sending — the client will simply not receive an email if they
-            // exceed the limit. Real users hit "Resend" less than once/hour.
+            log('rate limit hit for', email);
             return res.json({ ok: true });
         }
 
@@ -70,6 +89,7 @@ passwordResetRouter.post('/forgot-password', async (req, res, next) => {
             expiresAt,
             ip: req.ip,
         });
+        log('code', code, 'saved for user', user.id);
 
         // Build the email body
         const subject = 'CryptoTA — Password reset code';
@@ -88,13 +108,14 @@ passwordResetRouter.post('/forgot-password', async (req, res, next) => {
             </div>
         `;
 
+        log('calling sendEmail to', email);
         await sendEmail({ to: email, subject, html });
-        console.log(`[password-reset] code ${code} emailed to ${email}`);
+        log('sendEmail returned, code', code, 'emailed to', email);
 
         // Generic OK — never reveal whether the email exists or was sent.
         res.json({ ok: true });
     } catch (err) {
-        console.error(`[password-reset] forgot-password failed for ${email || 'unknown'}:`, err.message);
+        logErr('forgot-password failed for', req.body?.email || 'unknown', ':', err.message);
         next(err);
     }
 });
