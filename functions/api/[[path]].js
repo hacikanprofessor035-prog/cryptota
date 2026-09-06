@@ -3,31 +3,43 @@
 // CORS preflight (OPTIONS) requests.
 //
 // Run on the edge: the function receives the request from the browser,
-// forwards it to the backend over Cloudflare's internal network, then
-// streams the response back. CORS headers are added in all responses so the
-// browser lets the cross-origin XHR through.
+// forwards it to the backend, then streams the response back. CORS headers
+// are added in all responses so the browser lets the cross-origin XHR
+// through.
 //
-// Backend URL: configurable via BACKEND_ORIGIN env, defaults to plain HTTP
-// VPS (mixed-content is fine because the call happens on Cloudflare's
-// network, not the browser).
+// BACKEND_ORIGIN env var controls where requests are proxied:
+//   - Production default: http://cryptota-app.duckdns.org (Cloudflare
+//     resolves DuckDNS domains on the edge, so DNS works here even if
+//     your local resolver doesn't.)
+//   - For a fresh env override: BACKEND_ORIGIN=http://185.192.22.193:80
+//     (Caddy is on :80 publicly — direct IP works for Cloudflare but the
+//     page can't reach it directly because Caddy is reverse-proxied to
+//     Node on :3001 locally.)
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env } = context;
   const url = new URL(request.url);
 
   // ===== CORS preflight (OPTIONS) =====
-  // Browsers send OPTIONS before POST with custom Content-Type to confirm
-  // the server allows it. Pages' static _redirects cannot answer OPTIONS
-  // because the request never reaches the backend, so we do it ourselves.
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(request) });
   }
 
   // ===== Build the upstream URL =====
-  // Strip the /api prefix and forward everything else (path + query) to the
-  // VPS. The backend's own routes already include /api/* (e.g. /api/auth/...
-  // -> http://185.192.22.193/api/auth/...).
-  const backend = context.env.BACKEND_ORIGIN || 'http://185.192.22.193';
+  // Strip the /api prefix; backend exposes the same /api/* routes.
+  // Prefer the env var so you can point at staging without redeploying.
+  // Falls back to the DuckDNS hostname (HTTPS via Caddy + Let's Encrypt),
+  // then to direct VPS IP as last resort.
+  // NOTE: Cloudflare Pages Functions returned error 1003 for the DuckDNS
+  // hostname at one point — if that recurs, set BACKEND_ORIGIN to a
+  // Cloudflare-fronted hostname (e.g. a Cloudflare Tunnel).
+  const backend =
+    env.BACKEND_ORIGIN ||
+    env.API_BASE ||
+    'https://cryptota-app.duckdns.org';
   const upstreamUrl = backend + url.pathname + url.search;
+
+  // [DEBUG] log what we're about to do — uncomment to troubleshoot
+  console.log('[proxy] backend =', backend, 'path =', url.pathname);
 
   // ===== Build the upstream request =====
   // Forward method, body, and most headers. Strip Host (the backend is on a
@@ -66,6 +78,22 @@ export async function onRequest(context) {
   }
 
   // ===== Build the response with CORS headers =====
+  // [DEBUG] return upstream's diagnostic info if it was an error so we can
+  // see exactly what the backend said. Uncomment for troubleshooting.
+  if (upstreamResponse.status >= 400) {
+    const debugBody = await upstreamResponse.clone().text();
+    return new Response(
+      JSON.stringify({
+        error: 'Upstream error',
+        upstreamStatus: upstreamResponse.status,
+        upstreamBody: debugBody.slice(0, 1000),
+        backend,
+        upstreamUrl,
+      }),
+      { status: upstreamResponse.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(request) } }
+    );
+  }
+
   const responseHeaders = new Headers(upstreamResponse.headers);
   // Re-apply CORS so the browser lets the (cross-origin) response through.
   // The backend's own CORS middleware is also on, but we re-apply here so
