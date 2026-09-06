@@ -982,6 +982,92 @@ const ChartEngine = (() => {
         ctx.lineTo(x, state.height - state.paddingBottom);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Price label on Y axis at cursor position
+        drawCrosshairPriceLabel(y, range);
+        // Time label on X axis at cursor position
+        drawCrosshairTimeLabel(x);
+    }
+
+    function drawCrosshairPriceLabel(y, range) {
+        // Clamp Y to price area
+        const { top, height } = priceArea();
+        const clampedY = Math.max(top + 1, Math.min(top + height - 1, y));
+        // Invert y → price
+        const t = (top + height - clampedY) / height;
+        const price = range.min + t * (range.max - range.min);
+        if (!isFinite(price)) return;
+
+        // Color by direction of hovered candle vs open
+        const idx = state.hoverIndex;
+        let color = COLORS.text;
+        if (idx >= 0 && idx < state.candles.length) {
+            const c = state.candles[idx];
+            if (c.close > c.open) color = COLORS.up;
+            else if (c.close < c.open) color = COLORS.down;
+        }
+
+        const text = formatPrice(price);
+        ctx.font = '10px JetBrains Mono, monospace';
+        const padX = 5, padY = 3;
+        const textW = ctx.measureText(text).width;
+        const labelX = state.width - state.paddingRight + 1;
+        const labelY = clampedY;
+        const boxX = labelX;
+        const boxY = labelY - 7;
+        const boxW = textW + padX * 2;
+        const boxH = 14;
+
+        // Pill background
+        ctx.fillStyle = color;
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        // Text (dark on color)
+        ctx.fillStyle = '#0a0e1a';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, boxX + padX, labelY + 0.5);
+        ctx.textBaseline = 'alphabetic';
+
+        // Small triangle pointing left at the crosshair line
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(state.width - state.paddingRight, clampedY);
+        ctx.lineTo(state.width - state.paddingRight - 4, clampedY - 4);
+        ctx.lineTo(state.width - state.paddingRight - 4, clampedY + 4);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawCrosshairTimeLabel(x) {
+        const idx = indexForX(x);
+        if (idx < 0 || idx >= state.candles.length) return;
+        const c = state.candles[idx];
+        if (!c || !c.time) return;
+        const d = new Date(c.time);
+        let text;
+        // Show date for older candles, time for recent ones
+        const now = Date.now();
+        if (now - c.time > 7 * 24 * 3600 * 1000) {
+            text = d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) +
+                   ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        } else {
+            text = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        ctx.font = '10px JetBrains Mono, monospace';
+        const padX = 5, padY = 3;
+        const textW = ctx.measureText(text).width;
+        const boxW = textW + padX * 2;
+        const boxH = 14;
+        const boxX = Math.max(state.paddingLeft,
+                              Math.min(state.width - state.paddingRight - boxW, x - boxW / 2));
+        const boxY = state.height - state.paddingBottom - boxH - 2;
+
+        ctx.fillStyle = COLORS.crosshair;
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.fillStyle = COLORS.text;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, boxX + padX, boxY + boxH / 2 + 0.5);
+        ctx.textBaseline = 'alphabetic';
     }
 
     /* ============== Interaction ============== */
