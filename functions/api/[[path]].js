@@ -78,22 +78,6 @@ export async function onRequest(context) {
   }
 
   // ===== Build the response with CORS headers =====
-  // [DEBUG] return upstream's diagnostic info if it was an error so we can
-  // see exactly what the backend said. Uncomment for troubleshooting.
-  if (upstreamResponse.status >= 400) {
-    const debugBody = await upstreamResponse.clone().text();
-    return new Response(
-      JSON.stringify({
-        error: 'Upstream error',
-        upstreamStatus: upstreamResponse.status,
-        upstreamBody: debugBody.slice(0, 1000),
-        backend,
-        upstreamUrl,
-      }),
-      { status: upstreamResponse.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(request) } }
-    );
-  }
-
   const responseHeaders = new Headers(upstreamResponse.headers);
   // Re-apply CORS so the browser lets the (cross-origin) response through.
   // The backend's own CORS middleware is also on, but we re-apply here so
