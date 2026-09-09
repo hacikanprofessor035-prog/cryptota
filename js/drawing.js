@@ -1,9 +1,10 @@
-/* === CryptoTA — Chart Drawing Layer (trend lines + horizontal levels) ===
+/* === CryptoTA — Chart Drawing Layer (trend lines + horizontal levels + zones) ===
  * Objects are stored in DATA coordinates (candle time + price) so they
  * survive zoom / pan / timeframe switches and page reloads.
  * Storage: localStorage, keyed per symbol ("cryptota.draw.BTCUSDT").
  *  - trend line: {id, time1, price1, time2, price2}          (no type field)
  *  - horizontal: {id, type: 'hline', price}
+ *  - rect zone:  {id, type: 'rect', time1, price1, time2, price2}
  *
  * Integration:
  *  - Drawing.setChartAPI({xForIndex, indexForX, yForPrice, getCandles,
@@ -17,6 +18,7 @@ const Drawing = (() => {
     const LS_PREFIX = 'cryptota.draw.';
     const LINE_COLOR = '#c9a857';        // amber — matches indicator palette
     const HLINE_COLOR = '#7a8a9e';       // muted slate — distinct from segments
+    const RECT_COLOR = '#c9a857';        // amber border, faint amber fill
     const LINE_WIDTH = 1.2;
     const LINE_ALPHA = 0.85;
     const HANDLE_ALPHA = 0.9;
@@ -126,6 +128,8 @@ const Drawing = (() => {
         for (const line of lines) {
             if (line.type === 'hline') {
                 renderHLine(ctx, line, range);
+            } else if (line.type === 'rect') {
+                renderRect(ctx, line, range);
             } else {
                 renderSegment(ctx, line, range);
             }
@@ -145,6 +149,22 @@ const Drawing = (() => {
                 ctx.lineTo(edges.right, y);
                 ctx.stroke();
                 ctx.setLineDash([]);
+            } else if (currentLine.type === 'rect') {
+                // rect zone: from anchor to cursor
+                const a = endPoint(currentLine, 1, range);
+                const bx = api.xForIndex(timeToIndex(timeAt(cursorPos.x)) || 0);
+                const by = api.yForPrice(priceAt(cursorPos.y, range), range);
+                if (a) {
+                    const x = Math.min(a.x, bx), y = Math.min(a.y, by);
+                    const w = Math.abs(bx - a.x), h = Math.abs(by - a.y);
+                    ctx.fillStyle = rgba(RECT_COLOR, 0.08);
+                    ctx.fillRect(x, y, w, h);
+                    ctx.strokeStyle = rgba(RECT_COLOR, 0.5);
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeRect(x, y, w, h);
+                    ctx.setLineDash([]);
+                }
             } else {
                 const a = endPoint(currentLine, 1, range);
                 const preview = {
@@ -226,6 +246,34 @@ const Drawing = (() => {
         }
     }
 
+    function renderRect(ctx, line, range) {
+        const a = endPoint(line, 1, range);
+        const b = endPoint(line, 2, range);
+        if (!a || !b) return;
+        const active = hoverLineId === line.id || dragLineId === line.id;
+
+        const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+        if (w < 1 || h < 1) return;
+
+        // faint fill + amber border
+        ctx.fillStyle = rgba(RECT_COLOR, active ? 0.14 : 0.07);
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = rgba(RECT_COLOR, active ? 0.95 : 0.6);
+        ctx.lineWidth = active ? 1.4 : LINE_WIDTH;
+        ctx.setLineDash(active ? [] : [6, 4]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+
+        // corner handles — only when active (SUBTLE)
+        if (active) {
+            drawHandle(ctx, a.x, a.y);
+            drawHandle(ctx, b.x, b.y);
+            drawHandle(ctx, a.x, b.y);
+            drawHandle(ctx, b.x, a.y);
+        }
+    }
+
     function drawHandle(ctx, x, y) {
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
@@ -271,6 +319,14 @@ const Drawing = (() => {
             currentLine = {
                 type: 'hline',
                 price: priceAt(pos.y, range)
+            };
+        } else if (tool === 'rect') {
+            currentLine = {
+                type: 'rect',
+                time1: timeAt(pos.x),
+                price1: priceAt(pos.y, range),
+                time2: null,
+                price2: null
             };
         } else {
             currentLine = {
@@ -332,11 +388,11 @@ const Drawing = (() => {
                 } else {
                     currentLine.time2 = timeAt(pos.x);
                     currentLine.price2 = priceAt(pos.y, range);
-                    // keep only if it is a real line, not a stray click
+                    // keep only if it is a real shape, not a stray click
                     const dx = Math.abs(currentLine.time2 - currentLine.time1);
                     const dy = Math.abs(currentLine.price2 - currentLine.price1);
                     if (dx > 0 || dy > 0) {
-                        currentLine.id = 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                        currentLine.id = (currentLine.type === 'rect' ? 'R' : 'L') + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
                         lines.push(currentLine);
                         save();
                     }
@@ -368,6 +424,19 @@ const Drawing = (() => {
             const a = endPoint(line, 1, range);
             const b = endPoint(line, 2, range);
             if (!a || !b) continue;
+            if (line.type === 'rect') {
+                // corners (diagonal pair 1/2 drags the whole rect shape)
+                if (dist(pos, a) <= 7) return { id: line.id, handle: 1, obj: line };
+                if (dist(pos, b) <= 7) return { id: line.id, handle: 2, obj: line };
+                // edges or body → move whole rect
+                const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+                const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+                const nearEdge =
+                    pos.x >= x0 - 5 && pos.x <= x1 + 5 &&
+                    pos.y >= y0 - 5 && pos.y <= y1 + 5;
+                if (nearEdge) return { id: line.id, handle: 0, obj: line };
+                continue;
+            }
             if (dist(pos, a) <= 7) return { id: line.id, handle: 1, obj: line };
             if (dist(pos, b) <= 7) return { id: line.id, handle: 2, obj: line };
             if (pointNearLine(pos, a, b, 6)) return { id: line.id, handle: 0, obj: line };

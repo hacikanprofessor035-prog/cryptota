@@ -913,7 +913,9 @@ const App = (() => {
                 ? 'Draw mode: click & drag to draw a trend line'
                 : tool === 'hline'
                     ? 'Level mode: click to place a horizontal line, drag to adjust'
-                    : 'Normal mode: drag to pan', 2000);
+                    : tool === 'rect'
+                        ? 'Zone mode: click & drag to mark a range'
+                        : 'Normal mode: drag to pan', 2000);
         });
 
         // Keyboard: Delete hovered line, Escape cancels drawing
