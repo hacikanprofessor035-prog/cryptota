@@ -1,6 +1,87 @@
 /* === CryptoTA — Main App === */
 
 const App = (() => {
+    /* ============== Watchlist (favorites) ============== */
+    const Watchlist = (() => {
+        const LS_KEY = 'cryptota.watchlist';
+        let items = [];           // symbols in add order
+        let collapsed = false;
+
+        function load() {
+            try {
+                items = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+                collapsed = localStorage.getItem(LS_KEY + '.collapsed') === '1';
+            } catch (e) { items = []; }
+        }
+
+        function save() {
+            try {
+                localStorage.setItem(LS_KEY, JSON.stringify(items));
+                localStorage.setItem(LS_KEY + '.collapsed', collapsed ? '1' : '0');
+            } catch (e) { /* full */ }
+        }
+
+        function has(sym) { return items.includes(sym); }
+        function toggle(sym) {
+            const i = items.indexOf(sym);
+            if (i >= 0) { items.splice(i, 1); }
+            else items.push(sym);
+            save();
+            render();
+            renderPairList();
+        }
+        function toggleCollapse() {
+            collapsed = !collapsed;
+            save();
+            render();
+        }
+        function render() {
+            const box = document.getElementById('watchlist');
+            const wrap = document.getElementById('watchlistItems');
+            if (!box || !wrap) return;
+            box.style.display = items.length ? '' : 'none';
+            if (!items.length) return;
+            const colBtn = document.getElementById('watchlistCollapse');
+            if (colBtn) colBtn.textContent = collapsed ? '+' : '−';
+            if (collapsed) { wrap.style.display = 'none'; return; }
+            wrap.style.display = '';
+            wrap.innerHTML = items.map(sym => {
+                const p = state.pairs.find(x => x.symbol === sym);
+                const t = state.tickers[sym];
+                const last = t ? t.last : null;
+                const change = t ? t.change : null;
+                const cls = change > 0 ? 'up' : (change < 0 ? 'down' : 'flat');
+                const sign = change > 0 ? '+' : '';
+                const base = p ? p.base : sym.replace(/USDT$|BTC$|ETH$|BNB$/, '');
+                const quote = p ? '/' + p.quote : '';
+                return `
+                    <div class="pair-row wl-row ${sym === state.activePair ? 'active' : ''}" data-symbol="${sym}">
+                        <button class="pair-fav active" data-fav="${sym}" title="Remove from favorites">★</button>
+                        <div class="pair-symbol">
+                            <span class="pair-symbol-base">${base}</span>
+                            <span class="pair-symbol-quote">${quote}</span>
+                        </div>
+                        <div class="pair-price">${last !== null ? formatPrice(last) : '—'}</div>
+                        <div class="pair-change ${cls}">${change !== null ? sign + change.toFixed(2) + '%' : '—'}</div>
+                        <div class="pair-volume"><span class="pair-volume-text">${t ? formatVolume(t.quoteVolume) : ''}</span></div>
+                    </div>
+                `;
+            }).join('');
+            wrap.querySelectorAll('.wl-row').forEach(row => {
+                row.addEventListener('click', () => selectPair(row.dataset.symbol));
+            });
+            wrap.querySelectorAll('.pair-fav').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggle(btn.dataset.fav);
+                });
+            });
+        }
+
+        return { load, has, toggle, toggleCollapse, render };
+    })();
+
+
     const state = {
         pairs: [],                // [{symbol, base, quote}]
         tickers: {},              // symbol -> {last, change, ...}
@@ -27,6 +108,11 @@ const App = (() => {
             document.getElementById('chartCanvas'),
             document.getElementById('chartOverlay')
         );
+
+        // Watchlist (favorites)
+        Watchlist.load();
+        const colBtn = document.getElementById('watchlistCollapse');
+        if (colBtn) colBtn.addEventListener('click', Watchlist.toggleCollapse);
 
         // Drawing layer (trend lines) — inject coordinate API
         if (window.Drawing) {
@@ -72,6 +158,7 @@ const App = (() => {
         state.tickerStream = new BinanceAPI.TickerStream((map) => {
             Object.assign(state.tickers, map);
             renderPairList();
+            Watchlist.render();
             updateHeaderPrice();
         });
         state.tickerStream.connect();
@@ -90,6 +177,7 @@ const App = (() => {
         document.querySelectorAll('.pair-row').forEach(el => {
             el.classList.toggle('active', el.dataset.symbol === symbol);
         });
+        Watchlist.render();
 
         const loading = document.getElementById('chartLoading');
         loading.style.display = 'block';
@@ -434,8 +522,10 @@ const App = (() => {
             // Bar width: 0..100% relative to max volume of visible list
             const pct = (vol && maxVol > 0) ? Math.max(4, Math.min(100, (vol / maxVol) * 100)) : 0;
             const barCls = change > 0 ? 'buy' : (change < 0 ? 'sell' : '');
+            const fav = Watchlist.has(p.symbol);
             return `
                 <div class="pair-row ${p.symbol === state.activePair ? 'active' : ''}" data-symbol="${p.symbol}">
+                    <button class="pair-fav ${fav ? 'active' : ''}" data-fav="${p.symbol}" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? '★' : '☆'}</button>
                     <div class="pair-symbol">
                         <span class="pair-symbol-base">${p.base}</span>
                         <span class="pair-symbol-quote">/${p.quote}</span>
@@ -453,6 +543,12 @@ const App = (() => {
         // Bind clicks
         list.querySelectorAll('.pair-row').forEach(row => {
             row.addEventListener('click', () => selectPair(row.dataset.symbol));
+        });
+        list.querySelectorAll('.pair-fav').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                Watchlist.toggle(btn.dataset.fav);
+            });
         });
     }
 

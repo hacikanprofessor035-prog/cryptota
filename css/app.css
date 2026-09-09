@@ -215,13 +215,67 @@ body.sidebar-hidden {
 
 .pair-row {
     display: grid;
-    grid-template-columns: 1fr 80px 60px 1fr;
+    grid-template-columns: 18px 1fr 80px 60px 1fr;
     align-items: center;
     padding: 8px 14px;
     cursor: pointer;
     border-bottom: 1px solid rgba(255, 255, 255, 0.02);
     transition: background 0.1s;
 }
+
+/* Favorites star (SUBTLE: dim by default, amber when active) */
+.pair-fav {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--text-3, #4a5164);
+    cursor: pointer;
+    opacity: 0.55;
+    transition: color 0.15s, opacity 0.15s, transform 0.1s;
+}
+
+.pair-fav:hover {
+    opacity: 1;
+    transform: scale(1.15);
+}
+
+.pair-fav.active {
+    color: var(--accent);
+    opacity: 0.9;
+}
+
+/* Watchlist block */
+.watchlist {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.watchlist-header {
+    cursor: default;
+}
+
+.watchlist-title {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.watchlist-collapse {
+    background: none;
+    border: none;
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.watchlist-collapse:hover { color: var(--text-0); }
+
+.watchlist-items .pair-row { padding: 6px 14px; }
 
 .pair-row:hover {
     background: var(--bg-2);
