@@ -15,6 +15,12 @@ import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.
 import { webhooksRouter } from './routes/webhooks.js';
 import adminRouter from './routes/admin.js';
 
+// Periodic flush of debounced user activity → DB file. Without this, a
+// long-running read-only session (user just looking at prices) would
+// never persist its activity and the online count would drift.
+const ACTIVITY_FLUSH_INTERVAL_MS = 60_000;
+let _activityFlushTimer = null;
+
 export async function createApp() {
     // Initialise database (runs migrations)
     await getDb();
@@ -104,8 +110,17 @@ export async function startServer() {
     // Start polling worker for TON payments
     startPaymentPolling();
 
+    // Periodic activity flush so the DB file stays current even during
+    // long read-only sessions (see lib/db.js ACTIVITY_DEBOUNCE_MS).
+    _activityFlushTimer = setInterval(() => {
+        db.flushActivity().catch(e => console.error('[activity] flush failed:', e.message));
+    }, ACTIVITY_FLUSH_INTERVAL_MS);
+    if (_activityFlushTimer.unref) _activityFlushTimer.unref();
+
     function shutdown(signal) {
         console.log(`[server] received ${signal}, shutting down...`);
+        if (_activityFlushTimer) { clearInterval(_activityFlushTimer); _activityFlushTimer = null; }
+        db.flushActivity().catch(() => {});
         server.close(() => {
             closeDb();
             process.exit(0);

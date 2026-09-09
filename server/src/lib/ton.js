@@ -25,6 +25,10 @@ const COINGECKO = 'https://api.coingecko.com/api/v3';
 const TON_DECIMALS = 1_000_000_000;
 // Memo we send: 16 hex chars (8 bytes) — collision-safe for our scale.
 const MEMO_LEN = 16;
+// Per-request timeout for toncenter / coingecko calls. Without this a slow
+// upstream can hang the polling worker for tens of seconds — `_pollInProgress`
+// stays true and backoff never triggers.
+const HTTP_TIMEOUT_MS = 15_000;
 
 export class TonError extends Error {
     constructor(message, { status, body } = {}) {
@@ -41,11 +45,23 @@ export function generateMemo() {
 }
 
 async function httpJson(url, opts = {}) {
-    const res = await request(url, {
-        method: opts.method || 'GET',
-        headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+    let res;
+    try {
+        res = await request(url, {
+            method: opts.method || 'GET',
+            headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+            body: opts.body ? JSON.stringify(opts.body) : undefined,
+            signal: controller.signal,
+        });
+    } catch (e) {
+        // undici throws a DOMException('AbortError') on timeout.
+        throw new TonError(`TON HTTP ${opts.method || 'GET'} ${url} failed: ${e.name === 'AbortError' ? 'timeout' : e.message}`,
+            { status: 0, body: null });
+    } finally {
+        clearTimeout(timer);
+    }
     const text = await res.body.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { /* leave null */ }
@@ -87,6 +103,64 @@ export async function usdToTon(usd) {
     const tonAmount = (usd / priceUsd) * 1.03;
     const nanoTon = Math.ceil(tonAmount * TON_DECIMALS);
     return { tonAmount: nanoTon / TON_DECIMALS, nanoTon, priceUsd };
+}
+
+/**
+ * Fetch raw incoming transactions for TON_ADDRESS, paginating until we have
+ * scanned everything past `sinceLt`/`sinceUtime`.
+ *
+ * Returns { txs, newest } where `txs` is the flat list and `newest` is
+ * { lt, hash, ut } of the most recent tx (used as the next poll cursor).
+ *
+ * This is the shared fetch used by the polling worker: ONE call per tick,
+ * local scan for each pending memo. Cheaper than calling `checkIncoming`
+ * per payment (which would re-fetch for each memo).
+ */
+export async function fetchRawTxList({ sinceLt = null, sinceUtime = null } = {}) {
+    if (!config.ton.address) {
+        throw new TonError('TON_ADDRESS is not configured');
+    }
+
+    const limit = 50;
+    let lt = sinceLt;
+    let hash = null;
+    let newestLt = null;
+    let newestHash = null;
+    let newestUt = sinceUtime;
+    const out = [];
+
+    // Safety cap: 10 pages × 50 = 500 txs scanned.
+    for (let i = 0; i < 10; i++) {
+        const params = new URLSearchParams({ address: config.ton.address, limit: String(limit) });
+        if (lt) params.set('lt', String(lt));
+        if (hash) params.set('hash', hash);
+
+        const j = await httpJson(`${TONCENTER}/getTransactions?${params}`);
+        const txs = j?.result;
+        if (!Array.isArray(txs) || txs.length === 0) break;
+
+        for (const tx of txs) {
+            out.push(tx);
+            const txLt = tx.transaction_id?.lt;
+            const txHash = tx.transaction_id?.hash;
+            const utime = Number(tx.utime || 0);
+            if (txLt && (newestLt == null || BigInt(txLt) > BigInt(newestLt))) {
+                newestLt = txLt;
+                newestHash = txHash;
+            }
+            if (utime && (newestUt == null || utime > newestUt)) {
+                newestUt = utime;
+            }
+        }
+
+        // Advance pagination cursor.
+        const last = txs[txs.length - 1];
+        lt = last.transaction_id?.lt;
+        hash = last.transaction_id?.hash;
+        if (!lt) break;
+    }
+
+    return { txs: out, newest: { lt: newestLt, hash: newestHash, ut: newestUt } };
 }
 
 /**
@@ -180,7 +254,7 @@ export async function checkIncoming({ memo, minNanoTon, sinceLt = null, sinceUti
  *   2. Base64 that decodes to our hex → use decoded.
  *   3. Anything else → ignore.
  */
-function decodeComment(raw) {
+export function decodeComment(raw) {
     if (!raw || typeof raw !== 'string') return null;
     const trimmed = raw.trim();
 

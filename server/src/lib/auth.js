@@ -37,9 +37,15 @@ export function authMiddleware(required = true) {
         }
         try {
             const decoded = verifyToken(match[1]);
-            // JWT spec: sub is a string. Convert to number for our SQL queries.
+            // JWT spec: sub is a string. Convert to number for our SQL queries,
+            // but reject anything that doesn't look like a positive integer.
+            const subNum = Number(decoded.sub);
+            if (!Number.isInteger(subNum) || subNum <= 0) {
+                if (required) return res.status(401).json({ error: 'Invalid or expired token' });
+                return next();
+            }
             req.user = {
-                id: Number(decoded.sub),
+                id: subNum,
                 email: decoded.email,
                 name: decoded.name
             };

@@ -8,7 +8,8 @@
 //
 // Schema migrations run on first getDb() call.
 import initSqlJs from 'sql.js';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
@@ -227,19 +228,33 @@ function execStmt(db, sql, params = []) {
 }
 
 // ===== Persist to disk =====
-let _writeScheduled = false;
+// All writes are debounced: instead of flushing on every mutation (which
+// would block the event loop on each register / login / payment update),
+// we batch changes over a short window and write once. Trade-off: a crash
+// in the debounce window can lose up to FLUSH_DELAY_MS of changes. For a
+// small-user app this is acceptable; for higher durability lower the delay.
+const FLUSH_DELAY_MS = 1_000;
+let _writeTimer = null;
+let _writeInFlight = Promise.resolve();
+
 function scheduleWrite() {
-    if (_writeScheduled) return;
-    _writeScheduled = true;
-    _writeChain = _writeChain.then(() => doWrite());
+    if (_writeTimer) return;
+    _writeTimer = setTimeout(() => {
+        _writeTimer = null;
+        _writeInFlight = _writeInFlight.then(doWrite).catch(e => {
+            console.error('[db] write failed', e);
+        });
+    }, FLUSH_DELAY_MS);
+    // Don't keep the process alive just for a pending flush.
+    if (_writeTimer.unref) _writeTimer.unref();
 }
 
 async function doWrite() {
-    _writeScheduled = false;
     if (config.db.path === ':memory:') return;
+    if (!_db) return;
     try {
         const data = _db.export();
-        writeFileSync(config.db.path, Buffer.from(data));
+        await writeFile(config.db.path, Buffer.from(data));
     } catch (e) {
         console.error('[db] write failed', e);
     }
@@ -248,6 +263,18 @@ async function doWrite() {
 // ===== Public API =====
 // All methods are async to keep the contract uniform, but on a loaded
 // in-memory db they're effectively sync internally.
+
+// Whitelist of updatable columns on the `payments` table. Prevents
+// mass-assignment: callers can only change fields in this set, even
+// if they pass arbitrary keys to updatePayment().
+const PAYMENT_UPDATABLE_FIELDS = new Set([
+    'memo', 'pay_amount', 'pay_currency', 'pay_address',
+    'price_usd_at_create', 'min_nano_ton',
+    'status', 'expires_at',
+    'provider_payment_id',
+    'last_seen_lt', 'last_seen_utime',
+    'tx_hash', 'tx_lt', 'tx_from', 'tx_value', 'completed_at',
+]);
 
 export async function get(userId) {
     await getDb();
@@ -259,6 +286,12 @@ export async function runRaw(sql, params = []) {
     await getDb();
     execStmt(_db, sql, params);
     scheduleWrite();
+}
+
+// Low-level read escape hatch — returns rows from a SELECT.
+export async function query(sql, params = []) {
+    await getDb();
+    return queryAll(_db, sql, params);
 }
 
 export async function getByEmail(email) {
@@ -290,17 +323,43 @@ export async function updateLastLogin(userId) {
 
 const ACTIVITY_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// In-memory debounce per user. Without this every authenticated request
+// would do an INSERT OR REPLACE on user_activity — that's 1+ writes per
+// request, killing the DB under load. We accept up to ACTIVITY_DEBOUNCE_MS
+// of staleness in exchange for ~100x fewer writes.
+const ACTIVITY_DEBOUNCE_MS = 30_000;
+const _activityDirty = new Map(); // userId → lastSeenIso
+
 export async function recordActivity(userId) {
     await getDb();
     const now = new Date().toISOString();
+    const prev = _activityDirty.get(userId);
+    if (prev && (Date.now() - new Date(prev).getTime()) < ACTIVITY_DEBOUNCE_MS) {
+        // Within the debounce window — just remember the user is dirty.
+        return;
+    }
+    _activityDirty.set(userId, now);
     execStmt(_db,
         `INSERT INTO user_activity (user_id, last_seen_at) VALUES (?, ?)
          ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
         [userId, now]);
     // Don't scheduleWrite() here — we'd be writing on every API call.
-    // We'll let the next "real" mutation flush it. SQLite reads are fine
-    // against a stale buffer; the worst case is the online count lags by
-    // a few seconds, which is acceptable.
+    // The periodic flushActivity() below handles persistence.
+}
+
+/**
+ * Periodically flush dirty activity rows to disk. Called from the
+ * shutdown path AND from a 60s setInterval in index.js. This guarantees
+ * the DB file reflects activity even if no other mutation happens.
+ */
+export async function flushActivity() {
+    if (_activityDirty.size === 0) return;
+    await getDb();
+    // The data is already in the in-memory DB via recordActivity — we
+    // only need to persist to disk.
+    scheduleWrite();
+    // Clear the dirty map so we don't re-flush the same rows twice.
+    _activityDirty.clear();
 }
 
 export async function getStats() {
@@ -395,7 +454,7 @@ export async function createPayment({ userId, tier, amountUsd, provider = 'ton' 
 
 export async function updatePayment(id, fields) {
     await getDb();
-    const keys = Object.keys(fields);
+    const keys = Object.keys(fields).filter(k => PAYMENT_UPDATABLE_FIELDS.has(k));
     if (!keys.length) return getPayment(id);
     const sets = keys.map(k => `${k} = ?`).join(', ');
     const vals = keys.map(k => fields[k]);
@@ -408,7 +467,7 @@ export async function updatePayment(id, fields) {
 
 export async function updatePaymentByProviderId(providerPaymentId, fields) {
     await getDb();
-    const keys = Object.keys(fields);
+    const keys = Object.keys(fields).filter(k => PAYMENT_UPDATABLE_FIELDS.has(k));
     if (!keys.length) return null;
     const sets = keys.map(k => `${k} = ?`).join(', ');
     const vals = keys.map(k => fields[k]);
@@ -447,6 +506,32 @@ export async function listPendingPayments() {
          LIMIT 100`);
 }
 
+/**
+ * Advance the polling cursor (last_seen_lt, last_seen_utime) for several
+ * payments in one UPDATE. The polling worker calls this once per tick
+ * with every still-pending payment id, instead of issuing N UPDATEs.
+ * Returns the number of rows actually changed.
+ */
+export async function batchAdvancePaymentCursor(ids, { lt, ut }) {
+    if (!Array.isArray(ids) || ids.length === 0) return 0;
+    await getDb();
+    // sql.js doesn't support binding an array for `IN (?, ?, ...)` directly,
+    // so build placeholders explicitly. ids come from a SELECT so they're
+    // integers from us — we coerce defensively.
+    const safeIds = ids.map(n => Number(n)).filter(n => Number.isInteger(n) && n > 0);
+    if (safeIds.length === 0) return 0;
+    const placeholders = safeIds.map(() => '?').join(', ');
+    const stmt = _db.prepare(
+        `UPDATE payments SET last_seen_lt = ?, last_seen_utime = ?, updated_at = ?
+         WHERE id IN (${placeholders})`
+    );
+    stmt.run([String(lt), ut, new Date().toISOString(), ...safeIds]);
+    const n = _db.getRowsModified();
+    stmt.free();
+    if (n > 0) scheduleWrite();
+    return n;
+}
+
 /** KV store for the polling worker — when was the last full scan? */
 export async function getPollCheckpoint() {
     await getDb();
@@ -483,8 +568,12 @@ export async function recordWebhookEvent({ provider, eventId, payload }) {
         scheduleWrite();
         return { duplicate: false };
     } catch (e) {
-        // UNIQUE constraint → already processed
-        if (String(e).includes('UNIQUE') || String(e).includes('constraint')) {
+        // sql.js raises a SqliteError whose message starts with
+        // "UNIQUE constraint failed:" for dup-key violations. We match
+        // by code/message prefix instead of `String(e).includes('UNIQUE')`
+        // which was fragile and could mask other errors.
+        const msg = String(e?.message || e);
+        if (msg.startsWith('UNIQUE constraint failed')) {
             return { duplicate: true };
         }
         throw e;
@@ -501,8 +590,9 @@ export async function markWebhookProcessed(eventId, error = null) {
 
 export async function closeDb() {
     if (_db) {
-        // Flush any pending writes before closing
-        await _writeChain;
+        // Flush any pending writes before closing.
+        if (_writeTimer) { clearTimeout(_writeTimer); _writeTimer = null; }
+        await _writeInFlight;
         _db.close();
         _db = null;
         _ready = null;
@@ -513,6 +603,7 @@ export async function closeDb() {
 export async function _resetForTests() {
     await closeDb();
     if (config.db.path !== ':memory:' && existsSync(config.db.path)) {
+        const { writeFileSync } = await import('node:fs');
         writeFileSync(config.db.path, Buffer.alloc(0));
     }
 }
@@ -558,9 +649,29 @@ export async function findValidResetCode({ email, codeHash }) {
 export async function markResetCodeUsed(id) {
     await getDb();
     execStmt(_db,
-        `UPDATE password_resets SET used_at = ? WHERE id = ?`,
+        'UPDATE password_resets SET used_at = ? WHERE id = ?',
         [new Date().toISOString(), id]);
     scheduleWrite();
+}
+
+/**
+ * Atomically mark a reset code as used. Returns true if this call was the
+ * one that flipped `used_at` from NULL to a timestamp; false if another
+ * concurrent request already used it (or it's expired).
+ *
+ * Used to close the race window in /reset-password where two requests
+ * with the same valid code could otherwise both proceed to set a new password.
+ */
+export async function consumeResetCode(id) {
+    await getDb();
+    const stmt = _db.prepare(
+        'UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL'
+    );
+    stmt.run([new Date().toISOString(), id]);
+    const claimed = _db.getRowsModified() > 0;
+    stmt.free();
+    if (claimed) scheduleWrite();
+    return claimed;
 }
 
 // Update the user's password_hash by user id.

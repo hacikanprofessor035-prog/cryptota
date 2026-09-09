@@ -222,31 +222,66 @@ async function pollOnce() {
             return;
         }
 
-        // For simplicity: check each pending payment in turn. Cheap for our
-        // scale (≤ a few dozen at a time).
+        // All pending payments share the same TON_ADDRESS, so fetch the
+        // transaction list ONCE per tick and scan it locally for every memo.
+        // This cuts N pending payments → 1 API call (was N before).
+        let sharedTxs = null;
+        let sharedNewest = null;
+
         for (const p of pending) {
             try {
-                const res = await checkIncoming({
-                    memo: p.memo,
-                    minNanoTon: p.min_nano_ton,
-                    sinceLt: p.last_seen_lt,
-                    sinceUtime: p.last_seen_utime,
+                if (!sharedTxs) {
+                    // Fetch the raw tx list once. Use the first pending
+                    // payment's cursor as the starting point — it's the
+                    // oldest unconfirmed payment and thus the conservative
+                    // boundary.
+                    sharedTxs = await tonLib.fetchRawTxList({
+                        sinceLt: p.last_seen_lt,
+                        sinceUtime: p.last_seen_utime,
+                    });
+                    sharedNewest = sharedTxs.newest;
+                }
+
+                // Scan the shared tx list locally for this payment's memo.
+                const match = sharedTxs.txs.find(tx => {
+                    const inMsg = tx.in_msg;
+                    if (!inMsg || !inMsg.value) return false;
+                    if (inMsg.source && inMsg.source === config.ton.address) return false;
+                    if (Number(inMsg.value) < p.min_nano_ton) return false;
+                    return tonLib.decodeComment(inMsg.message) === p.memo;
                 });
 
-                if (res.found) {
-                    await activatePayment(p, res.found);
-                } else if (res.newestLt) {
-                    // Advance cursor so we don't re-scan the same tx next time.
-                    await db.updatePayment(p.id, {
-                        last_seen_lt: res.newestLt,
-                        last_seen_utime: res.newestUt,
+                if (match) {
+                    await activatePayment(p, {
+                        lt: match.transaction_id?.lt,
+                        hash: match.transaction_id?.hash,
+                        utime: Number(match.utime || 0),
+                        value: Number(match.in_msg.value),
+                        from: match.in_msg.source || null,
+                        raw: match,
                     });
                 }
             } catch (e) {
                 console.error(`[payments] poll error for #${p.id}:`, e.message);
                 if (e.status === 429 || /429|rate.?limit/i.test(String(e.message))) {
                     sawRateLimit = true;
+                    // Break: hammering more memos won't help, and re-entering
+                    // the loop will just trigger another 429.
+                    break;
                 }
+            }
+        }
+
+        // Advance cursor for ALL pending payments to the newest tx we saw.
+        // (Even payments we didn't find a match for — this prevents re-scanning.)
+        if (sharedNewest?.lt) {
+            for (const p of pending) {
+                try {
+                    await db.updatePayment(p.id, {
+                        last_seen_lt: sharedNewest.lt,
+                        last_seen_utime: sharedNewest.ut,
+                    });
+                } catch { /* non-fatal */ }
             }
         }
         await db.setPollCheckpoint(Date.now());
@@ -270,10 +305,8 @@ async function pollOnce() {
 
 export function startPaymentPolling() {
     if (_pollTimer) return;
-    // First run after 2s so the server is ready.
-    setTimeout(pollOnce, 2_000);
-    // Then schedule normal cadence.
-    _pollTimer = setTimeout(pollOnce, POLL_INTERVAL_MS + 2_000);
+    // Single timer. pollOnce() re-schedules itself via scheduleNext().
+    _pollTimer = setTimeout(pollOnce, 2_000);
     console.log(`[payments] TON polling worker started (every ${(POLL_INTERVAL_MS / 1000).toFixed(0)}s, backs off on 429)`);
 }
 
