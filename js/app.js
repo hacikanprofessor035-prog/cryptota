@@ -119,6 +119,7 @@ const App = (() => {
             Drawing.setChartAPI(ChartEngine.getCoordAPI(), null, updateDrawUI);
             bindDrawingUI();
         }
+        bindScreenshotButton();
 
         await loadPairs();
         bindUI();
@@ -1025,6 +1026,61 @@ const App = (() => {
                 ChartEngine.render();
             }
         });
+    }
+
+    /* ============== Screenshot (chart PNG) ============== */
+    function bindScreenshotButton() {
+        const btn = document.getElementById('screenshotButton');
+        if (!btn) return;
+        btn.addEventListener('click', downloadChartPNG);
+    }
+
+    function downloadChartPNG() {
+        const src = document.getElementById('chartCanvas');
+        if (!src) return;
+
+        // Compose: dark bg + chart + watermark header
+        const out = document.createElement('canvas');
+        const dpr = window.devicePixelRatio || 1;
+        out.width = src.width;
+        out.height = src.height;
+        const ctx = out.getContext('2d');
+        ctx.fillStyle = '#0a0e1a';
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.drawImage(src, 0, 0);
+
+        // Header strip: CryptoTA · SYMBOL · TF · date — drawn on top of chart padding area
+        const hdr = `${state.activePair || ''} · ${state.timeframe.toUpperCase()} · ${new Date().toISOString().slice(0, 10)}`;
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.font = '600 12px JetBrains Mono, monospace';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(232, 236, 244, 0.9)';
+        const cw = src.width / dpr;
+        ctx.fillText(hdr, cw - 8, 6);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(201, 168, 87, 0.95)';       // amber
+        ctx.fillText('CryptoTA', 8, 6);
+        // watermark bottom-right
+        ctx.globalAlpha = 0.35;
+        ctx.font = '10px JetBrains Mono, monospace';
+        ctx.fillText('cryptota.pages.dev', 8, src.height / dpr - 16);
+        ctx.restore();
+
+        // Download
+        out.toBlob((blob) => {
+            if (!blob) { showToast('Screenshot failed'); return; }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `cryptota-${state.activePair || 'chart'}-${state.timeframe || ''}-${Date.now()}.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 3000);
+            showToast('Chart saved as PNG');
+        }, 'image/png');
     }
 
     function setDrawCursor(tool) {
