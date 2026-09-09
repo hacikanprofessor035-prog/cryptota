@@ -504,6 +504,25 @@ body.sidebar-hidden .show-sidebar-btn {
     color: var(--accent);
 }
 
+/* Drawing tools (trend lines) */
+.draw-tools {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-2);
+    padding: 2px;
+    border-radius: var(--radius);
+}
+.draw-tools .ct-btn.active {
+    color: #c9a857;             /* amber — matches line color */
+    background: var(--bg-3);
+}
+#drawToggle.on {
+    border-color: #c9a857;
+    color: #c9a857;
+}
+/* cursor when line tool is active */
+#chartCanvas.draw-mode { cursor: crosshair; }
+
 /* Active indicators */
 .active-indicators {
     display: flex;

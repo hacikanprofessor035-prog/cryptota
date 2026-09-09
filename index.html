@@ -84,6 +84,13 @@
                     <button class="ct-btn" data-type="area" title="Area">◣</button>
                 </div>
 
+                <div class="draw-tools" id="drawTools" style="display:none;">
+                    <button class="ct-btn active" data-tool="off" title="Normal mode (pan chart)">✜</button>
+                    <button class="ct-btn" data-tool="line" title="Draw trend line — click & drag on chart. Drag handles to edit, Del to remove">╱</button>
+                    <button class="ct-btn" data-tool="clear" title="Remove all lines on this pair">✕</button>
+                </div>
+
+                <button class="ct-icon-btn" id="drawToggle" title="Drawing tools (trend lines)">✎</button>
                 <button class="tier-badge" id="tierBadge" data-tier="free" title="Click to upgrade">FREE</button>
                 <button class="auth-button" id="authButton" data-auth="false" title="Sign in to sync your settings">Sign in</button>
                 <button class="ct-icon-btn" id="statsButton" data-action="stats" title="Server stats (admin)" style="display:none">▤</button>
@@ -392,6 +399,7 @@
     <script src="js/indicators.js"></script>
     <script src="js/strategies.js"></script>
     <script src="js/chart.js"></script>
+    <script src="js/drawing.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/app.js"></script>
 </body>

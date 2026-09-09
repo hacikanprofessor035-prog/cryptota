@@ -28,6 +28,12 @@ const App = (() => {
             document.getElementById('chartOverlay')
         );
 
+        // Drawing layer (trend lines) — inject coordinate API
+        if (window.Drawing) {
+            Drawing.setChartAPI(ChartEngine.getCoordAPI(), null, updateDrawUI);
+            bindDrawingUI();
+        }
+
         await loadPairs();
         bindUI();
         connectTickerStream();
@@ -74,6 +80,9 @@ const App = (() => {
     async function selectPair(symbol, forceReload = false) {
         if (state.activePair === symbol && !forceReload) return;
         state.activePair = symbol;
+
+        // Drawing layer: switch storage key to the new pair
+        if (window.Drawing) Drawing.setSymbol(symbol);
 
         // Close previous stream
         if (state.klineStream) { state.klineStream.close(); state.klineStream = null; }
@@ -859,6 +868,74 @@ const App = (() => {
                 e.stopPropagation();
                 removeStrategy(btn.dataset.key);
             });
+        });
+    }
+
+    /* ============== Drawing tools UI ============== */
+
+    function bindDrawingUI() {
+        const toggle = document.getElementById('drawToggle');
+        const tools = document.getElementById('drawTools');
+        if (!toggle || !tools) return;
+
+        // Show/hide the tool group
+        toggle.addEventListener('click', () => {
+            const visible = tools.style.display !== 'none';
+            tools.style.display = visible ? 'none' : 'flex';
+            toggle.classList.toggle('on', !visible);
+            if (visible) {
+                Drawing.setTool('off');      // leaving — reset mode
+                setDrawCursor('off');
+            }
+        });
+
+        // Tool selection inside the group
+        tools.addEventListener('click', (e) => {
+            const btn = e.target.closest('.ct-btn');
+            if (!btn) return;
+            const tool = btn.dataset.tool;
+
+            if (tool === 'clear') {
+                if (Drawing.getLineCount() > 0) {
+                    Drawing.clearAll();
+                    showToast('All lines removed');
+                    ChartEngine.render();
+                } else {
+                    showToast('No lines to remove');
+                }
+                return;   // clear is an action, not a mode
+            }
+
+            tools.querySelectorAll('.ct-btn').forEach(b => b.classList.toggle('active', b === btn));
+            Drawing.setTool(tool);
+            setDrawCursor(tool);
+            showToast(tool === 'line'
+                ? 'Draw mode: click & drag to draw a trend line'
+                : 'Normal mode: drag to pan', 2000);
+        });
+
+        // Keyboard: Delete hovered line, Escape cancels drawing
+        document.addEventListener('keydown', (e) => {
+            if (Drawing.getTool() === 'off') return;
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+            if (Drawing.onKeyDown(e)) {
+                e.preventDefault();
+                ChartEngine.render();
+            }
+        });
+    }
+
+    function setDrawCursor(tool) {
+        const cv = document.getElementById('chartCanvas');
+        if (!cv) return;
+        cv.classList.toggle('draw-mode', tool !== 'off');
+    }
+
+    function updateDrawUI(tool) {
+        const tools = document.getElementById('drawTools');
+        if (!tools) return;
+        tools.querySelectorAll('.ct-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.tool === tool);
         });
     }
 

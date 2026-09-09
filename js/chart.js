@@ -47,6 +47,9 @@ const ChartEngine = (() => {
     let canvas, ctx, overlay;
     let onStateChange = null;
 
+    /* Current price range cache — Drawing layer needs it in mouse events */
+    let lastRange = null;
+
     function init(canvasEl, overlayEl, onChange) {
         canvas = canvasEl;
         overlay = overlayEl;
@@ -206,6 +209,7 @@ const ChartEngine = (() => {
         if (!visible.length) return;
 
         const range = priceRange(visible);
+        lastRange = range;   // cached for Drawing mouse handlers
 
         // 1. Grid
         drawGrid(range);
@@ -219,6 +223,11 @@ const ChartEngine = (() => {
         // 4. Overlay indicators
         for (const ind of state.overlayIndicators) {
             drawOverlayIndicator(ind, range);
+        }
+
+        // 4.5 User drawings (trend lines)
+        if (window.Drawing) {
+            Drawing.render(ctx, range);
         }
 
         // 5. Pane indicators
@@ -1073,6 +1082,8 @@ const ChartEngine = (() => {
     /* ============== Interaction ============== */
 
     let dragStart = null;
+    /* true while Drawing layer owns the gesture (no pan) */
+    let drawingGesture = false;
 
     function onWheel(e) {
         e.preventDefault();
@@ -1092,6 +1103,15 @@ const ChartEngine = (() => {
     }
 
     function onMouseDown(e) {
+        // Drawing layer first — it may consume the gesture
+        if (window.Drawing && lastRange) {
+            const rect = canvas.getBoundingClientRect();
+            const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            if (Drawing.onMouseDown(pos, lastRange)) {
+                drawingGesture = true;
+                return;
+            }
+        }
         dragStart = { x: e.offsetX, startView: state.viewStart };
     }
 
@@ -1100,6 +1120,15 @@ const ChartEngine = (() => {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         state.crosshair = { x, y };
+
+        // Drawing layer: drag / hover (returns true = consumed)
+        if (window.Drawing && lastRange) {
+            const pos = { x, y };
+            if (Drawing.onMouseMove(pos, lastRange)) {
+                render();
+                return;
+            }
+        }
 
         if (dragStart) {
             const usable = state.width - state.paddingLeft - state.paddingRight;
@@ -1119,12 +1148,24 @@ const ChartEngine = (() => {
         render();
     }
 
-    function onMouseUp() { dragStart = null; }
+    function onMouseUp(e) {
+        // Finish drawing gesture if active
+        if (drawingGesture && window.Drawing && lastRange) {
+            const rect = canvas.getBoundingClientRect();
+            const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            Drawing.onMouseUp(pos, lastRange);
+            drawingGesture = false;
+            render();
+            return;
+        }
+        dragStart = null;
+    }
     function onMouseLeave() {
         state.crosshair = null;
         state.hoverIndex = -1;
         hideCrosshairInfo();
         dragStart = null;
+        if (window.Drawing) Drawing.onMouseLeave && Drawing.onMouseLeave();
         render();
     }
 
@@ -1187,7 +1228,16 @@ const ChartEngine = (() => {
         setChartType,
         setIndicators,
         resetView,
-        getState: () => state
+        getState: () => state,
+        /* Drawing layer API (data↔pixel transforms + candles) */
+        getCoordAPI: () => ({
+            xForIndex,
+            indexForX,
+            yForPrice,
+            priceArea,
+            getCandles: () => state.candles
+        }),
+        render
     };
 })();
 
