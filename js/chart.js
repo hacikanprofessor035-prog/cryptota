@@ -225,10 +225,7 @@ const ChartEngine = (() => {
             drawOverlayIndicator(ind, range);
         }
 
-        // 4.5 User drawings (trend lines)
-        if (window.Drawing) {
-            Drawing.render(ctx, range);
-        }
+        // 4.5 (moved to 7.5 — after Y axis so hline price pills draw on top)
 
         // 5. Pane indicators
         drawPaneIndicators();
@@ -238,6 +235,12 @@ const ChartEngine = (() => {
 
         // 7. X axis (bottom)
         drawXAxis();
+
+        // 7.5 User drawings (trend lines + horizontal levels) — after the
+        // Y axis so the hline price pills render on top of the axis labels
+        if (window.Drawing) {
+            Drawing.render(ctx, range);
+        }
 
         // 8. Last price line
         if (state.lastPriceLine) {
@@ -1235,7 +1238,12 @@ const ChartEngine = (() => {
             indexForX,
             yForPrice,
             priceArea,
-            getCandles: () => state.candles
+            getCandles: () => state.candles,
+            chartEdges: () => ({
+                left: state.paddingLeft,
+                right: state.width - state.paddingRight
+            }),
+            formatPrice
         }),
         render
     };

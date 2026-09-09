@@ -911,7 +911,9 @@ const App = (() => {
             setDrawCursor(tool);
             showToast(tool === 'line'
                 ? 'Draw mode: click & drag to draw a trend line'
-                : 'Normal mode: drag to pan', 2000);
+                : tool === 'hline'
+                    ? 'Level mode: click to place a horizontal line, drag to adjust'
+                    : 'Normal mode: drag to pan', 2000);
         });
 
         // Keyboard: Delete hovered line, Escape cancels drawing
