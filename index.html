@@ -3,7 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CryptoTA — Technical Analysis</title>
+    <title>CryptoTA — Free Crypto Technical Analysis Terminal</title>
+    <meta name="description" content="Free crypto technical analysis terminal: candlestick charts, 14+ indicators, 6 trading strategies, trend lines, fib fan, zones. No signup required.">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0a0e1a">
+    <!-- Open Graph / Twitter — share cards -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="CryptoTA">
+    <meta property="og:title" content="CryptoTA — Free Crypto Technical Analysis Terminal">
+    <meta property="og:description" content="Candlestick charts, 14+ indicators, 6 strategies, drawing tools, share links. No signup.">
+    <meta property="og:image" content="https://cryptota.pages.dev/og-image.png">
+    <meta property="og:url" content="https://cryptota.pages.dev/">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="CryptoTA — Free Crypto TA Terminal">
+    <meta name="twitter:description" content="Charts, indicators, strategies, drawing tools. No signup.">
+    <meta name="twitter:image" content="https://cryptota.pages.dev/og-image.png">
+    <!-- Cloudflare Web Analytics -->
+    <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "ADD_TOKEN_HERE"}'></script>
     <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -104,6 +122,7 @@
 
                 <button class="ct-icon-btn" id="drawToggle" title="Drawing tools (trend lines)">✎</button>
                 <button class="ct-icon-btn" id="screenshotButton" title="Save chart as PNG">📸</button>
+                <button class="ct-icon-btn" id="shareButton" title="Copy share link — chart + drawings">🔗</button>
                 <button class="tier-badge" id="tierBadge" data-tier="free" title="Click to upgrade">FREE</button>
                 <button class="auth-button" id="authButton" data-auth="false" title="Sign in to sync your settings">Sign in</button>
                 <button class="ct-icon-btn" id="statsButton" data-action="stats" title="Server stats (admin)" style="display:none">▤</button>

@@ -83,6 +83,23 @@ const Drawing = (() => {
     function getTool() { return tool; }
     function getLineCount() { return lines.length; }
 
+    /* ===== Share: export/import objects ===== */
+    function getObjects() {
+        return JSON.parse(JSON.stringify(lines));
+    }
+
+    function setObjects(objs) {
+        if (!Array.isArray(objs)) return;
+        // re-id to avoid collisions
+        lines = objs.map(o => {
+            const copy = { ...o };
+            const prefix = copy.type === 'hline' ? 'H' : copy.type === 'rect' ? 'R' : copy.type === 'fib' ? 'F' : 'L';
+            copy.id = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            return copy;
+        });
+        save();
+    }
+
     /* ===== time ↔ candle index (fractional, for smooth rendering) ===== */
     function timeToIndex(t) {
         if (!api) return null;
@@ -558,7 +575,7 @@ const Drawing = (() => {
     return {
         setChartAPI, setSymbol, setTool, clearAll,
         render, onMouseDown, onMouseMove, onMouseUp, onMouseLeave,
-        getTool, getLineCount,
+        getTool, getLineCount, getObjects, setObjects,
         onKeyDown
     };
 

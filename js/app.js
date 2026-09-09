@@ -82,6 +82,81 @@ const App = (() => {
     })();
 
 
+    /* ============== Share links (chart state in URL hash) ==============
+     * Format: #/<SYMBOL>/<TF>?d=<base64url drawing objects>
+     * Compact JSON: lines as arrays [type?, t1, p1, t2?, p2?]. */
+    const Share = (() => {
+        const b64e = (s) => btoa(JSON.stringify(s)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const b64d = (s) => JSON.parse(atob(s.replace(/-/g, '+').replace(/_/g, '/')));
+
+        function encodeObjects(objs) {
+            const compact = objs.map(o => {
+                if (o.type === 'hline') return [1, o.price];
+                if (o.type === 'rect') return [2, o.time1, o.price1, o.time2, o.price2];
+                if (o.type === 'fib') return [3, o.time1, o.price1, o.time2, o.price2];
+                return [0, o.time1, o.price1, o.time2, o.price2];   // segment
+            });
+            return b64e(compact);
+        }
+
+        function decodeObjects(code) {
+            try {
+                const compact = b64d(code);
+                return compact.map(c => {
+                    const k = c[0];
+                    if (k === 1) return { type: 'hline', price: c[1] };
+                    if (k === 2) return { type: 'rect', time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
+                    if (k === 3) return { type: 'fib', time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
+                    return { time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
+                }).filter(o => o && (o.price != null || o.price1 != null));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function buildHash() {
+            const objs = window.Drawing ? Drawing.getObjects() : [];
+            let hash = `#/${state.activePair || 'BTCUSDT'}/${state.timeframe}`;
+            if (objs.length) hash += `?d=${encodeObjects(objs)}`;
+            return hash;
+        }
+
+        function copyLink() {
+            const url = location.origin + location.pathname + buildHash();
+            const done = () => showToast('Link copied — share your setup!');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+            } else fallbackCopy(url, done);
+        }
+
+        function fallbackCopy(text, done) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); done(); }
+            catch (e) { showToast('Copy failed — URL is in the address bar'); }
+            ta.remove();
+        }
+
+        /* parse location.hash → {symbol, tf, objects} | null */
+        function parseHash() {
+            const h = location.hash;
+            if (!h.startsWith('#/')) return null;
+            const m = h.match(/^#\/([A-Z0-9]+)\/(\w+)(?:\?d=([\w-]+))?/);
+            if (!m) return null;
+            return {
+                symbol: m[1],
+                tf: m[2],
+                objects: m[3] ? decodeObjects(m[3]) : null
+            };
+        }
+
+        return { encodeObjects, decodeObjects, buildHash, copyLink, parseHash };
+    })();
+
+
     const state = {
         pairs: [],                // [{symbol, base, quote}]
         tickers: {},              // symbol -> {last, change, ...}
@@ -114,6 +189,10 @@ const App = (() => {
         const colBtn = document.getElementById('watchlistCollapse');
         if (colBtn) colBtn.addEventListener('click', Watchlist.toggleCollapse);
 
+        // Share link button
+        const shareBtn = document.getElementById('shareButton');
+        if (shareBtn) shareBtn.addEventListener('click', Share.copyLink);
+
         // Drawing layer (trend lines) — inject coordinate API
         if (window.Drawing) {
             Drawing.setChartAPI(ChartEngine.getCoordAPI(), null, updateDrawUI);
@@ -129,8 +208,21 @@ const App = (() => {
         renderActiveIndicators();
         bindStrategyPanel();
 
-        // Default to BTC/USDT
-        if (state.pairs.length > 0) {
+        // Default to BTC/USDT — or the pair from a share link (#/SYMBOL/TF)
+        const shared = Share.parseHash();
+        if (shared && state.pairs.some(p => p.symbol === shared.symbol)) {
+            // apply timeframe from the link
+            const tfBtn = document.querySelector(`.tf-btn[data-tf="${shared.tf}"]`);
+            if (tfBtn) tfBtn.click();
+            await selectPair(shared.symbol);
+            // apply shared drawings AFTER the pair's data is loaded
+            if (shared.objects && shared.objects.length && window.Drawing) {
+                Drawing.setSymbol(shared.symbol);
+                Drawing.setObjects(shared.objects);
+                ChartEngine.render();
+                showToast(`Loaded shared setup (${shared.objects.length} objects)`, 3000);
+            }
+        } else if (state.pairs.length > 0) {
             const btc = state.pairs.find(p => p.symbol === 'BTCUSDT') || state.pairs[0];
             await selectPair(btc.symbol);
         }
@@ -168,6 +260,9 @@ const App = (() => {
     async function selectPair(symbol, forceReload = false) {
         if (state.activePair === symbol && !forceReload) return;
         state.activePair = symbol;
+
+        // Share link: keep URL in sync (no drawings in plain pair switching)
+        history.replaceState(null, '', `#/${symbol}/${state.timeframe}`);
 
         // Drawing layer: switch storage key to the new pair
         if (window.Drawing) Drawing.setSymbol(symbol);
