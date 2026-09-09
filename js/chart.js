@@ -66,7 +66,109 @@ const ChartEngine = (() => {
         canvas.addEventListener('mousemove', onMouseMove);
         canvas.addEventListener('mouseup', onMouseUp);
         canvas.addEventListener('mouseleave', onMouseLeave);
+
+        // Touch: one finger pan, two fingers pinch-zoom (mobile)
+        canvas.style.touchAction = 'none';
+        canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+        canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+        canvas.addEventListener('touchend', onTouchEnd, { passive: false });
     }
+
+    /* ===== Touch handlers (pinch-zoom + pan) ===== */
+    let pinchStart = null;      // {dist, viewStart, viewCount, mid}
+    let touchPanStart = null;   // {x, viewStart}
+    const lastTouches = { x: 0, y: 0 };
+
+    function onTouchStart(e) {
+        if (e.touches.length === 1) {
+            const t = e.touches[0];
+            touchPanStart = { x: t.clientX, y: t.clientY, viewStart: state.viewStart };
+            lastTouches.x = t.clientX; lastTouches.y = t.clientY;
+        } else if (e.touches.length === 2) {
+            const [a, b] = e.touches;
+            const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+            pinchStart = {
+                dist,
+                viewStart: state.viewStart,
+                viewCount: state.viewCount,
+                mid: (a.clientX + b.clientX) / 2
+            };
+            touchPanStart = null;
+        }
+        if (drawingGesture) e.preventDefault();   // drawing layer owns the gesture
+    }
+
+    function onTouchMove(e) {
+        // Drawing layer first (single finger)
+        if (e.touches.length === 1 && window.Drawing && Drawing.getTool && Drawing.getTool() !== 'off') {
+            const t = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const pos = { x: t.clientX - rect.left, y: t.clientY - rect.top };
+            // mouse-equivalent pipeline for Drawing
+            const isMove = touchDrawingActive;
+            if (!touchDrawingActive) {
+                touchDrawingActive = Drawing.onMouseDown(pos, lastRange);
+            } else {
+                Drawing.onMouseMove(pos, lastRange);
+            }
+            lastTouches.x = t.clientX; lastTouches.y = t.clientY;
+            render();
+            e.preventDefault();
+            return;
+        }
+        if (e.touches.length === 1 && touchPanStart) {
+            const t = e.touches[0];
+            const dx = t.clientX - touchPanStart.x;
+            const dy = t.clientY - touchPanStart.y;
+            // Horizontal pan only (chart is time-based)
+            const cw = state.width - state.paddingLeft - state.paddingRight;
+            const countPerPx = state.viewCount / Math.max(cw, 1);
+            let vs = touchPanStart.viewStart - dx * countPerPx;
+            vs = Math.max(0, Math.min(state.candles.length - state.viewCount, vs));
+            state.viewStart = vs;
+            render();
+            e.preventDefault();
+        } else if (e.touches.length === 2 && pinchStart) {
+            const [a, b] = e.touches;
+            const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+            if (dist > 10) {
+                // fingers apart → zoom in (fewer candles); fingers together → zoom out
+                const scale = dist / pinchStart.dist;
+                let vc = Math.round(pinchStart.viewCount * scale);
+                vc = Math.max(20, Math.min(500, vc));
+                // keep the midpoint stationary
+                const cw = state.width - state.paddingLeft - state.paddingRight;
+                const rect = canvas.getBoundingClientRect();
+                const midX = pinchStart.mid - rect.left;
+                const anchor = pinchStart.viewStart + (midX - state.paddingLeft) / cw * pinchStart.viewCount;
+                let vs = anchor - (midX - state.paddingLeft) / cw * vc;
+                vs = Math.max(0, Math.min(state.candles.length - vc, vs));
+                state.viewStart = vs;
+                state.viewCount = vc;
+                render();
+            }
+            e.preventDefault();
+        }
+    }
+
+    function onTouchEnd(e) {
+        if (touchDrawingActive) {
+            const t = e.changedTouches[0];
+            if (t) {
+                const rect = canvas.getBoundingClientRect();
+                Drawing.onMouseUp({ x: t.clientX - rect.left, y: t.clientY - rect.top }, lastRange);
+            }
+            touchDrawingActive = false;
+            render();
+        }
+        if (e.touches.length === 0) {
+            pinchStart = null;
+            touchPanStart = null;
+        }
+        e.preventDefault();
+    }
+
+    let touchDrawingActive = false;
 
     function resize() {
         const rect = canvas.parentElement.getBoundingClientRect();

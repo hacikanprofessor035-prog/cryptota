@@ -466,9 +466,39 @@ const App = (() => {
         // Show/hide sidebar
         document.getElementById('toggleSidebar').addEventListener('click', () => {
             document.body.classList.add('sidebar-hidden');
+            document.body.classList.remove('sidebar-mobile-open');
         });
         document.getElementById('showSidebarBtn').addEventListener('click', () => {
             document.body.classList.remove('sidebar-hidden');
+            document.body.classList.remove('sidebar-mobile-open');
+        });
+
+        // Mobile drawer: click the ▶ to slide the panel over the chart
+        const showBtn = document.getElementById('showSidebarBtn');
+        if (showBtn) {
+            // on phones the ▶ button becomes a drawer toggle
+            showBtn.addEventListener('click', () => {
+                if (window.matchMedia('(max-width: 640px)').matches) {
+                    document.body.classList.toggle('sidebar-mobile-open');
+                }
+            });
+        }
+        // Close the drawer when a pair is picked or the backdrop is tapped
+        document.addEventListener('click', (e) => {
+            if (!document.body.classList.contains('sidebar-mobile-open')) return;
+            const sidebar = document.getElementById('sidebar');
+            const inSidebar = sidebar.contains(e.target);
+            const isToggle = e.target.closest('#showSidebarBtn, #toggleSidebar');
+            if (!inSidebar && !isToggle) {
+                document.body.classList.remove('sidebar-mobile-open');
+            }
+        });
+        // ...and when a pair inside the drawer is selected (pair click IS inside sidebar)
+        document.querySelectorAll('#pairList, #watchlistItems').forEach(wrap => {
+            wrap.addEventListener('click', (e) => {
+                const row = e.target.closest('.pair-row');
+                if (row) document.body.classList.remove('sidebar-mobile-open');
+            });
         });
 
         // Indicator / strategy / auth / upgrade modal helpers
