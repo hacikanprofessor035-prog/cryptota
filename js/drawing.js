@@ -1,10 +1,11 @@
-/* === CryptoTA — Chart Drawing Layer (trend lines + horizontal levels + zones) ===
+/* === CryptoTA — Chart Drawing Layer (trend lines + levels + zones + fib fan) ===
  * Objects are stored in DATA coordinates (candle time + price) so they
  * survive zoom / pan / timeframe switches and page reloads.
  * Storage: localStorage, keyed per symbol ("cryptota.draw.BTCUSDT").
  *  - trend line: {id, time1, price1, time2, price2}          (no type field)
  *  - horizontal: {id, type: 'hline', price}
  *  - rect zone:  {id, type: 'rect', time1, price1, time2, price2}
+ *  - fib fan:    {id, type: 'fib', time1, price1, time2, price2}
  *
  * Integration:
  *  - Drawing.setChartAPI({xForIndex, indexForX, yForPrice, getCandles,
@@ -19,6 +20,8 @@ const Drawing = (() => {
     const LINE_COLOR = '#c9a857';        // amber — matches indicator palette
     const HLINE_COLOR = '#7a8a9e';       // muted slate — distinct from segments
     const RECT_COLOR = '#c9a857';        // amber border, faint amber fill
+    const FIB_COLOR = '#9b8ec9';         // violet — from indicator palette
+    const FIB_LEVELS = [0.382, 0.5, 0.618, 0.786];
     const LINE_WIDTH = 1.2;
     const LINE_ALPHA = 0.85;
     const HANDLE_ALPHA = 0.9;
@@ -130,6 +133,8 @@ const Drawing = (() => {
                 renderHLine(ctx, line, range);
             } else if (line.type === 'rect') {
                 renderRect(ctx, line, range);
+            } else if (line.type === 'fib') {
+                renderFib(ctx, line, range);
             } else {
                 renderSegment(ctx, line, range);
             }
@@ -165,6 +170,10 @@ const Drawing = (() => {
                     ctx.strokeRect(x, y, w, h);
                     ctx.setLineDash([]);
                 }
+            } else if (currentLine.type === 'fib') {
+                // fib fan preview: base + rays from anchor to cursor
+                const preview = { time1: currentLine.time1, price1: currentLine.price1, time2: timeAt(cursorPos.x), price2: priceAt(cursorPos.y, range) };
+                drawFibFan(ctx, preview, range, true);
             } else {
                 const a = endPoint(currentLine, 1, range);
                 const preview = {
@@ -274,6 +283,70 @@ const Drawing = (() => {
         }
     }
 
+    /* Fib fan: base trendline A→B; rays from A through the fib retracement
+     * levels of the AB move, extended to the right chart edge. */
+    function drawFibFan(ctx, line, range, preview) {
+        const a = endPoint(line, 1, range);
+        const b = endPoint(line, 2, range);
+        if (!a || !b) return;
+        const edges = api.chartEdges();
+
+        // base line (dashed, subdued)
+        ctx.strokeStyle = rgba(FIB_COLOR, preview ? 0.4 : 0.45);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // rays from A through fib levels of AB, to the right edge
+        const endX = edges.right + 2;
+        for (const lvl of FIB_LEVELS) {
+            // point on AB at fraction lvl (from B back toward A):
+            //   full fib retracement means price returns to A's level at 100%,
+            //   so the ray target is A.y + (B.y - A.y) * (1 - lvl) → but that
+            //   collapses; standard fan: target = B.y + (A.y - B.y) * lvl,
+            //   i.e. lvl-share of the way back from B to A, at B.x.
+            const ty = b.y + (a.y - b.y) * lvl;
+            ctx.strokeStyle = rgba(FIB_COLOR, preview ? 0.35 : 0.5);
+            ctx.lineWidth = lvl === 0.618 ? 1.2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(endX, a.y + (ty - a.y) * ((endX - a.x) / Math.max(b.x - a.x, 1)));
+            ctx.stroke();
+        }
+
+        // tiny level label at each ray end (SUBTLE)
+        if (!preview) {
+            ctx.font = '9px JetBrains Mono, monospace';
+            ctx.fillStyle = rgba(FIB_COLOR, 0.7);
+            ctx.textAlign = 'right';
+            for (const lvl of FIB_LEVELS) {
+                const ty = b.y + (a.y - b.y) * lvl;
+                const ex = endX;
+                const ey = a.y + (ty - a.y) * ((ex - a.x) / Math.max(b.x - a.x, 1));
+                ctx.fillText(lvl.toFixed(3).slice(1), ex - 4, ey - 3);
+            }
+            ctx.textAlign = 'left';
+        }
+    }
+
+    function renderFib(ctx, line, range) {
+        const active = hoverLineId === line.id || dragLineId === line.id;
+        drawFibFan(ctx, line, range, false);
+        // handles on A and B — only when active (SUBTLE)
+        if (active) {
+            const a = endPoint(line, 1, range);
+            const b = endPoint(line, 2, range);
+            if (a && b) {
+                drawHandle(ctx, a.x, a.y);
+                drawHandle(ctx, b.x, b.y);
+            }
+        }
+    }
+
     function drawHandle(ctx, x, y) {
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
@@ -320,9 +393,9 @@ const Drawing = (() => {
                 type: 'hline',
                 price: priceAt(pos.y, range)
             };
-        } else if (tool === 'rect') {
+        } else if (tool === 'rect' || tool === 'fib') {
             currentLine = {
-                type: 'rect',
+                type: tool,
                 time1: timeAt(pos.x),
                 price1: priceAt(pos.y, range),
                 time2: null,
@@ -392,7 +465,8 @@ const Drawing = (() => {
                     const dx = Math.abs(currentLine.time2 - currentLine.time1);
                     const dy = Math.abs(currentLine.price2 - currentLine.price1);
                     if (dx > 0 || dy > 0) {
-                        currentLine.id = (currentLine.type === 'rect' ? 'R' : 'L') + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                        const prefix = currentLine.type === 'rect' ? 'R' : currentLine.type === 'fib' ? 'F' : 'L';
+                        currentLine.id = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
                         lines.push(currentLine);
                         save();
                     }

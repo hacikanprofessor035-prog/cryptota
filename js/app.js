@@ -915,7 +915,9 @@ const App = (() => {
                     ? 'Level mode: click to place a horizontal line, drag to adjust'
                     : tool === 'rect'
                         ? 'Zone mode: click & drag to mark a range'
-                        : 'Normal mode: drag to pan', 2000);
+                        : tool === 'fib'
+                            ? 'Fib fan: drag along a trend to fan out the levels'
+                            : 'Normal mode: drag to pan', 2000);
         });
 
         // Keyboard: Delete hovered line, Escape cancels drawing
