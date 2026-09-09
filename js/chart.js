@@ -132,8 +132,8 @@ const ChartEngine = (() => {
             const [a, b] = e.touches;
             const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
             if (dist > 10) {
-                // fingers apart → zoom in (fewer candles); fingers together → zoom out
-                const scale = dist / pinchStart.dist;
+                // fingers apart → zoom in (fewer candles, bigger); together → zoom out
+                const scale = pinchStart.dist / dist;
                 let vc = Math.round(pinchStart.viewCount * scale);
                 vc = Math.max(20, Math.min(500, vc));
                 // keep the midpoint stationary
