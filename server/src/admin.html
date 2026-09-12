@@ -8,11 +8,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>CryptoTA — Admin</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
 <style>
     :root {
-        --bg: #0b0e14; --panel: #131822; --panel2: #0f141d;
-        --border: #1f2735; --text: #dce3ed; --muted: #7d8a9c;
-        --accent: #4f8cff; --green: #3ecf8e; --amber: #e6b455; --red: #ef6a6a;
+        /* Aligned with main app tokens (css/app.css) */
+        --bg: #0a0e1a; --panel: #11151f; --panel2: #181d2a; --hover: #252b3b;
+        --border: rgba(255, 255, 255, 0.10); --border-soft: rgba(255, 255, 255, 0.06);
+        --text: #e8ecf4; --muted: #9ba4b8; --dim: #6b7488;
+        --accent: #5cc8c0; --green: #16c784; --amber: #c9a857; --red: #ea3943;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -63,6 +66,8 @@
     .card .num { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
     .card .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
     .card .sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+    .card.alert { border-color: rgba(201, 168, 87, .45); }
+    .card.alert .sub { color: var(--amber); font-weight: 600; }
 
     /* sections & tables */
     section { margin-bottom: 22px; }
@@ -70,8 +75,9 @@
         font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase;
         letter-spacing: .8px; margin-bottom: 8px;
     }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table {
-        width: 100%; border-collapse: collapse; background: var(--panel);
+        width: 100%; min-width: 560px; border-collapse: collapse; background: var(--panel);
         border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
         font-size: 12.5px;
     }
@@ -88,7 +94,9 @@
     .badge.pro { background: rgba(79,140,255,.14); color: var(--accent); }
     .badge.lifetime { background: rgba(230,180,85,.14); color: var(--amber); }
     .muted { color: var(--muted); }
-    .hash { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+    .hash { font-family: ui-monospace, monospace; font-size: 11px; color: var(--dim); }
+    a.hash { color: var(--accent); text-decoration: none; }
+    a.hash:hover { text-decoration: underline; }
     .empty { padding: 18px; text-align: center; color: var(--muted); font-size: 12px; }
 
     footer {
@@ -131,26 +139,26 @@
 
         <section>
             <h3>Последние регистрации</h3>
-            <table id="t-users">
+            <div class="table-scroll"><table id="t-users">
                 <thead><tr><th>#</th><th>Email</th><th>Имя</th><th>Регистрация</th><th>Логин</th></tr></thead>
                 <tbody></tbody>
-            </table>
+            </table></div>
         </section>
 
         <section>
             <h3>Платежи</h3>
-            <table id="t-payments">
+            <div class="table-scroll"><table id="t-payments">
                 <thead><tr><th>#</th><th>Email</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Создан</th><th>TX</th></tr></thead>
                 <tbody></tbody>
-            </table>
+            </table></div>
         </section>
 
         <section>
             <h3>Лицензии</h3>
-            <table id="t-licenses">
+            <div class="table-scroll"><table id="t-licenses">
                 <thead><tr><th>#</th><th>Email</th><th>Тариф</th><th>Активирована</th><th>Истекает</th><th>Источник</th></tr></thead>
                 <tbody></tbody>
-            </table>
+            </table></div>
         </section>
 
         <footer>
@@ -189,6 +197,13 @@
         if (!h) return '—';
         return esc(h.length > 14 ? h.slice(0, 8) + '…' + h.slice(-4) : h);
     }
+    function txLink(h) {
+        // Only link real tx hashes — base64url, 44 chars, not manual markers
+        // like 'manual-backfill-vps' set by admin tooling.
+        if (!/^[A-Za-z0-9_-]{43,44}$/.test(h)) return shortHash(h);
+        const url = 'https://tonviewer.com/transaction/' + encodeURIComponent(h);
+        return '<a class="hash" href="' + url + '" target="_blank" rel="noopener">' + shortHash(h) + '</a>';
+    }
 
     function renderStats(s) {
         const cards = [
@@ -197,12 +212,12 @@
             [s.onlineLast24h, 'Онлайн за 24ч', ''],
             [s.proHolders, 'Pro-лицензий', ''],
             [s.lifetimeHolders, 'Lifetime', ''],
-            [s.payments?.total ?? 0, 'Платежей всего', (s.payments?.waiting ?? 0) + ' ждёт'],
+            [s.payments?.total ?? 0, 'Платежей всего', (s.payments?.waiting ?? 0) + ' ждёт', (s.payments?.waiting ?? 0) > 0],
             [s.payments?.finished ?? 0, 'Завершено', (s.payments?.failed ?? 0) + ' откл.'],
             [(s.payments?.tonReceivedNano / 1e9).toFixed(2) + ' TON', 'Получено TON', ''],
         ];
-        $('cards').innerHTML = cards.map(([n, l, sub]) =>
-            `<div class="card"><div class="num">${n}</div><div class="lbl">${l}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`
+        $('cards').innerHTML = cards.map(([n, l, sub, alert]) =>
+            `<div class="card${alert ? ' alert' : ''}"><div class="num">${n}</div><div class="lbl">${l}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`
         ).join('');
     }
 
@@ -224,7 +239,7 @@
             <td class="num">$${Number(p.amountUsd).toFixed(2)}</td>
             <td><span class="badge ${p.status}">${p.status}</span></td>
             <td class="num">${fmtDate(p.createdAt)}</td>
-            <td class="hash">${p.txHash ? shortHash(p.txHash) : '—'}</td>
+            <td class="hash">${p.txHash ? txLink(p.txHash) : '—'}</td>
         </tr>`).join('');
     }
 
