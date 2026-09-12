@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import * as db from '../lib/db.js';
 import { hashPassword, verifyPassword, signToken, authMiddleware } from '../lib/auth.js';
+import { loginLimiter, registerLimiter } from '../lib/rate-limit.js';
 
 export const authRouter = Router();
 
@@ -15,7 +16,7 @@ const registerSchema = credsSchema.extend({
     name: z.string().min(1).max(100).optional()
 });
 
-authRouter.post('/register', async (req, res, next) => {
+authRouter.post('/register', registerLimiter, async (req, res, next) => {
     try {
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -34,7 +35,7 @@ authRouter.post('/register', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
-authRouter.post('/login', async (req, res, next) => {
+authRouter.post('/login', loginLimiter, async (req, res, next) => {
     try {
         const parsed = credsSchema.safeParse(req.body);
         if (!parsed.success) {

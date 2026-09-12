@@ -14,6 +14,7 @@ import { licenseRouter } from './routes/license.js';
 import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import adminRouter from './routes/admin.js';
+import { authGlobalLimiter } from './lib/rate-limit.js';
 
 // Periodic flush of debounced user activity → DB file. Without this, a
 // long-running read-only session (user just looking at prices) would
@@ -26,6 +27,10 @@ export async function createApp() {
     await getDb();
 
     const app = express();
+
+    // We sit behind Caddy (reverse proxy) — trust X-Forwarded-For so
+    // rate limiters and logs see the real client IP instead of 127.0.0.1.
+    app.set('trust proxy', 1);
 
     // CORS — explicit allowlist
     const allowOrigin = (origin) => {
@@ -50,6 +55,9 @@ export async function createApp() {
 
     // Reserved for future webhook routes (e.g. TonAPI push notifications).
     app.use('/api/webhooks', webhooksRouter);
+
+    // Global safety net for all auth endpoints (per-IP, per-minute).
+    app.use('/api/auth', authGlobalLimiter);
 
     // Everything else uses JSON
     app.use(express.json({ limit: '64kb' }));

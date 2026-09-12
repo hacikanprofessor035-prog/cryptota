@@ -19,6 +19,7 @@ import { createHash, randomInt } from 'node:crypto';
 import * as db from '../lib/db.js';
 import { hashPassword } from '../lib/auth.js';
 import { sendEmail, isEmailEnabled } from '../lib/email.js';
+import { resetLimiter } from '../lib/rate-limit.js';
 
 // Force line-buffered stdout so journald sees the logs immediately.
 // Without this, Node's TTY detection delays log lines until the buffer
@@ -127,7 +128,7 @@ const resetSchema = z.object({
     newPassword: z.string().min(8).max(200),
 });
 
-passwordResetRouter.post('/reset-password', async (req, res, next) => {
+passwordResetRouter.post('/reset-password', resetLimiter, async (req, res, next) => {
     try {
         const parsed = resetSchema.safeParse(req.body);
         if (!parsed.success) {
