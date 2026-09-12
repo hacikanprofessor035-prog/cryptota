@@ -57,7 +57,19 @@ export async function createApp() {
     app.use('/api/webhooks', webhooksRouter);
 
     // Global safety net for all auth endpoints (per-IP, per-minute).
-    app.use('/api/auth', authGlobalLimiter);
+    // GET /api/stats — public server statistics (safe aggregates only).
+// No auth: powers the "Server statistics" modal on the site. Contains
+// only counts — no emails, no personal data, no revenue per user.
+app.get('/api/stats', async (_req, res) => {
+    try {
+        res.json(await db.getStats());
+    } catch (e) {
+        console.error('[stats] error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.use('/api/auth', authGlobalLimiter);
 
     // Everything else uses JSON
     app.use(express.json({ limit: '64kb' }));

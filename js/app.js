@@ -518,8 +518,8 @@ const App = (() => {
         // Expose toast for UI module
         window.appShowToast = showToast;
 
-        // Show the Stats button only if an admin token is configured.
-        if (CryptoTA_CONFIG.adminToken) {
+        // Stats are public (safe aggregates via /api/stats) — always show.
+        {
             const btn = document.getElementById('statsButton');
             if (btn) {
                 btn.style.display = '';
@@ -553,12 +553,9 @@ const App = (() => {
     }
 
     async function fetchStats() {
-        const token = CryptoTA_CONFIG.adminToken;
-        if (!token) return;
+        // Public endpoint /api/stats — no token needed (aggregates only).
         try {
-            const r = await fetch(`${CryptoTA_CONFIG.apiBase}${CryptoTA_CONFIG.endpoints.adminStats}`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
+            const r = await fetch(`${CryptoTA_CONFIG.apiBase}${CryptoTA_CONFIG.endpoints.adminStats}`);
             if (!r.ok) {
                 setStatsValue('usersTotal', 'Error');
                 const footer = document.getElementById('statsFooter');
