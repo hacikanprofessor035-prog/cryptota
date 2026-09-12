@@ -1,16 +1,17 @@
 {
-    "name": "CryptoTA — Technical Analysis Terminal",
-    "short_name": "CryptoTA",
-    "description": "Free crypto technical analysis terminal: candlestick charts, 14+ indicators, 6 strategies, drawing tools. No signup.",
-    "start_url": "/",
-    "display": "standalone",
-    "background_color": "#0a0e1a",
-    "theme_color": "#0a0e1a",
-    "icons": [
-        {
-            "src": "apple-touch-icon.png",
-            "sizes": "180x180",
-            "type": "image/png"
-        }
-    ]
+  "name": "CryptoTA — Technical Analysis Terminal",
+  "short_name": "CryptoTA",
+  "description": "Free crypto technical analysis terminal: candlestick charts, 14+ indicators, 6 strategies, drawing tools. No signup.",
+  "start_url": "https://cryptota.duckdns.org/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
+  "icons": [
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "scope": "/"
 }
