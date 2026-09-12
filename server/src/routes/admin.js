@@ -62,4 +62,53 @@ router.get('/recent-signups', async (_req, res) => {
     }
 });
 
+// GET /api/admin/payments — last N payments with user email joined in.
+router.get('/payments', async (_req, res) => {
+    try {
+        const rows = await db.query(
+            `SELECT p.id, p.tier, p.amount_usd AS amountUsd, p.status,
+                    p.created_at AS createdAt, p.tx_hash AS txHash,
+                    u.email
+             FROM payments p LEFT JOIN users u ON u.id = p.user_id
+             ORDER BY p.id DESC LIMIT ?`,
+            [Math.min(Number(_req.query.limit) || 20, 100)]
+        );
+        res.json({ items: rows });
+    } catch (e) {
+        console.error('[admin/payments] error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/admin/licenses — last N licenses with user email joined in.
+router.get('/licenses', async (_req, res) => {
+    try {
+        const rows = await db.query(
+            `SELECT l.id, l.tier, l.activated_at AS activatedAt,
+                    l.expires_at AS expiresAt, l.source, u.email
+             FROM licenses l LEFT JOIN users u ON u.id = l.user_id
+             ORDER BY l.id DESC LIMIT ?`,
+            [Math.min(Number(_req.query.limit) || 20, 100)]
+        );
+        res.json({ items: rows });
+    } catch (e) {
+        console.error('[admin/licenses] error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/admin/health — process/node info for the admin dashboard.
+router.get('/health', async (_req, res) => {
+    try {
+        res.json({
+            uptimeSec: Math.round(process.uptime()),
+            nodeVersion: process.version.replace(/^v/, ''),
+            serverTime: new Date().toISOString(),
+            rssMb: Math.round(process.memoryUsage().rss / 1048576),
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 export default router;

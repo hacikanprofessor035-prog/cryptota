@@ -62,6 +62,14 @@ export async function createApp() {
     // Everything else uses JSON
     app.use(express.json({ limit: '64kb' }));
 
+    // Admin dashboard — single static page served by the backend.
+    // Token auth happens in the browser against /api/admin/*.
+    app.get('/admin', (_req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.sendFile(new URL('./admin.html', import.meta.url).pathname);
+    });
+
     // Health check
     app.get('/api/health', (req, res) => {
         res.json({

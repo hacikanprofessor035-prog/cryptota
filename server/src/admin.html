@@ -1,0 +1,311 @@
+// Admin UI page — single-file, no build step, served by the backend at /admin.
+// The operator pastes ADMIN_TOKEN once; it is kept in localStorage and used
+// as a Bearer token against /api/admin/* (same origin, no CORS involved).
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>CryptoTA — Admin</title>
+<style>
+    :root {
+        --bg: #0b0e14; --panel: #131822; --panel2: #0f141d;
+        --border: #1f2735; --text: #dce3ed; --muted: #7d8a9c;
+        --accent: #4f8cff; --green: #3ecf8e; --amber: #e6b455; --red: #ef6a6a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        background: var(--bg); color: var(--text);
+        font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 24px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    header {
+        display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: .3px; }
+    header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    header .spacer { flex: 1; }
+    button {
+        background: var(--panel); color: var(--text); border: 1px solid var(--border);
+        border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+
+    /* token gate */
+    #gate {
+        max-width: 380px; margin: 12vh auto 0; text-align: center;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+        padding: 32px;
+    }
+    #gate h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+    #gate input {
+        width: 100%; background: var(--panel2); border: 1px solid var(--border);
+        color: var(--text); border-radius: 8px; padding: 9px 12px; font-size: 13px;
+        outline: none;
+    }
+    #gate input:focus { border-color: var(--accent); }
+    #gate .err { color: var(--red); font-size: 12px; margin-top: 10px; min-height: 16px; }
+    #gate button { margin-top: 14px; width: 100%; background: var(--accent); border: none; color: #fff; }
+    #gate .hint { color: var(--muted); font-size: 11px; margin-top: 14px; }
+
+    /* stats cards */
+    .cards {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px; margin-bottom: 20px;
+    }
+    .card {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+        padding: 14px 16px;
+    }
+    .card .num { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .card .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+    .card .sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+    /* sections & tables */
+    section { margin-bottom: 22px; }
+    section h3 {
+        font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+        letter-spacing: .8px; margin-bottom: 8px;
+    }
+    table {
+        width: 100%; border-collapse: collapse; background: var(--panel);
+        border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+        font-size: 12.5px;
+    }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; background: var(--panel2); }
+    tr:last-child td { border-bottom: none; }
+    td.num { font-variant-numeric: tabular-nums; }
+    .badge {
+        display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px;
+    }
+    .badge.waiting { background: rgba(230,180,85,.12); color: var(--amber); }
+    .badge.finished { background: rgba(62,207,142,.12); color: var(--green); }
+    .badge.failed, .badge.expired { background: rgba(239,106,106,.12); color: var(--red); }
+    .badge.pro { background: rgba(79,140,255,.14); color: var(--accent); }
+    .badge.lifetime { background: rgba(230,180,85,.14); color: var(--amber); }
+    .muted { color: var(--muted); }
+    .hash { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+    .empty { padding: 18px; text-align: center; color: var(--muted); font-size: 12px; }
+
+    footer {
+        color: var(--muted); font-size: 11px; margin-top: 28px;
+        display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    }
+    #err-banner {
+        display: none; background: rgba(239,106,106,.1); border: 1px solid var(--red);
+        color: var(--red); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px;
+        font-size: 13px;
+    }
+    @media (max-width: 640px) { body { padding: 14px; } td, th { padding: 6px 8px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+    <!-- token gate -->
+    <div id="gate">
+        <h2>🔒 CryptoTA Admin</h2>
+        <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
+        <div class="err" id="gate-err"></div>
+        <button id="unlock">Войти</button>
+        <div class="hint">Токен хранится только в localStorage этого браузера.<br>Запросы идут на тот же домен (API same-origin).</div>
+    </div>
+
+    <!-- dashboard -->
+    <div id="dash" style="display:none">
+        <div id="err-banner"></div>
+        <header>
+            <span class="dot" id="live-dot"></span>
+            <h1>CryptoTA Admin</h1>
+            <span class="muted" id="refresh-in" style="font-size:11px"></span>
+            <span class="spacer"></span>
+            <button id="refresh">Обновить</button>
+            <button id="logout">Выйти</button>
+        </header>
+
+        <div class="cards" id="cards"></div>
+
+        <section>
+            <h3>Последние регистрации</h3>
+            <table id="t-users">
+                <thead><tr><th>#</th><th>Email</th><th>Имя</th><th>Регистрация</th><th>Логин</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h3>Платежи</h3>
+            <table id="t-payments">
+                <thead><tr><th>#</th><th>Email</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Создан</th><th>TX</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h3>Лицензии</h3>
+            <table id="t-licenses">
+                <thead><tr><th>#</th><th>Email</th><th>Тариф</th><th>Активирована</th><th>Истекает</th><th>Источник</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </section>
+
+        <footer>
+            <span id="srv-info"></span>
+            <span class="spacer" style="flex:1"></span>
+            <span>обновление каждые 30с</span>
+        </footer>
+    </div>
+</div>
+
+<script>
+(() => {
+    const LS_KEY = 'cryptota_admin_token';
+    const $ = id => document.getElementById(id);
+    let timer = null, countdown = null;
+
+    function api(path) {
+        return fetch(path, {
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem(LS_KEY) }
+        }).then(async r => {
+            if (r.status === 401 || r.status === 503) throw new Error('Токен неверен или ADMIN_TOKEN не задан на сервере');
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        });
+    }
+
+    function esc(s) {
+        return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    }
+    function fmtDate(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+    function shortHash(h) {
+        if (!h) return '—';
+        return esc(h.length > 14 ? h.slice(0, 8) + '…' + h.slice(-4) : h);
+    }
+
+    function renderStats(s) {
+        const cards = [
+            [s.usersTotal, 'Пользователей', ''],
+            [s.onlineNow, 'Онлайн сейчас', ''],
+            [s.onlineLast24h, 'Онлайн за 24ч', ''],
+            [s.proHolders, 'Pro-лицензий', ''],
+            [s.lifetimeHolders, 'Lifetime', ''],
+            [s.payments?.total ?? 0, 'Платежей всего', (s.payments?.waiting ?? 0) + ' ждёт'],
+            [s.payments?.finished ?? 0, 'Завершено', (s.payments?.failed ?? 0) + ' откл.'],
+            [(s.payments?.tonReceivedNano / 1e9).toFixed(2) + ' TON', 'Получено TON', ''],
+        ];
+        $('cards').innerHTML = cards.map(([n, l, sub]) =>
+            `<div class="card"><div class="num">${n}</div><div class="lbl">${l}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`
+        ).join('');
+    }
+
+    function renderUsers(items) {
+        const tb = $('t-users').querySelector('tbody');
+        if (!items?.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">Нет данных</td></tr>'; return; }
+        tb.innerHTML = items.map(u => `<tr>
+            <td class="num">${u.id}</td><td>${esc(u.email)}</td><td class="muted">${esc(u.name || '—')}</td>
+            <td class="num">${fmtDate(u.createdAt)}</td><td class="num">${u.lastLoginAt ? fmtDate(u.lastLoginAt) : '<span class="muted">никогда</span>'}</td>
+        </tr>`).join('');
+    }
+
+    function renderPayments(items) {
+        const tb = $('t-payments').querySelector('tbody');
+        if (!items?.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">Нет платежей</td></tr>'; return; }
+        tb.innerHTML = items.map(p => `<tr>
+            <td class="num">${p.id}</td><td>${esc(p.email || '—')}</td>
+            <td><span class="badge ${p.tier}">${p.tier}</span></td>
+            <td class="num">$${Number(p.amountUsd).toFixed(2)}</td>
+            <td><span class="badge ${p.status}">${p.status}</span></td>
+            <td class="num">${fmtDate(p.createdAt)}</td>
+            <td class="hash">${p.txHash ? shortHash(p.txHash) : '—'}</td>
+        </tr>`).join('');
+    }
+
+    function renderLicenses(items) {
+        const tb = $('t-licenses').querySelector('tbody');
+        if (!items?.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Нет лицензий</td></tr>'; return; }
+        tb.innerHTML = items.map(l => `<tr>
+            <td class="num">${l.id}</td><td>${esc(l.email || '—')}</td>
+            <td><span class="badge ${l.tier}">${l.tier}</span></td>
+            <td class="num">${fmtDate(l.activatedAt)}</td>
+            <td class="num">${l.expiresAt ? fmtDate(l.expiresAt) : '<span class="muted">бессрочно</span>'}</td>
+            <td class="muted">${esc(l.source)}</td>
+        </tr>`).join('');
+    }
+
+    async function loadAll() {
+        try {
+            const [stats, users, payments, licenses, health] = await Promise.all([
+                api('/api/admin/stats'),
+                api('/api/admin/recent-signups'),
+                api('/api/admin/payments?limit=20'),
+                api('/api/admin/licenses?limit=20'),
+                api('/api/admin/health'),
+            ]);
+            $('err-banner').style.display = 'none';
+            renderStats(stats);
+            renderUsers(users.items);
+            renderPayments(payments.items);
+            renderLicenses(licenses.items);
+            const up = health.uptimeSec ? Math.floor(health.uptimeSec / 3600) + 'ч ' + Math.floor(health.uptimeSec % 3600 / 60) + 'м' : '—';
+            $('srv-info').textContent = `uptime ${up} · node ${health.nodeVersion || '—'} · ${health.serverTime || ''}`;
+        } catch (e) {
+            $('err-banner').style.display = 'block';
+            $('err-banner').textContent = 'Ошибка: ' + e.message + (String(e.message).includes('Токен') ? '' : ' (повтор через 30с)');
+            if (String(e.message).includes('Токен')) { logout(); }
+        }
+    }
+
+    function startTimer() {
+        let left = 30;
+        clearInterval(timer); clearInterval(countdown);
+        countdown = setInterval(() => { left--; if (left <= 0) left = 30; $('refresh-in').textContent = '↻ ' + left + 'с'; }, 1000);
+        timer = setInterval(() => { left = 30; loadAll(); }, 30000);
+    }
+
+    function showDash() {
+        $('gate').style.display = 'none';
+        $('dash').style.display = 'block';
+        loadAll();
+        startTimer();
+    }
+
+    function logout() {
+        clearInterval(timer); clearInterval(countdown);
+        localStorage.removeItem(LS_KEY);
+        $('dash').style.display = 'none';
+        $('gate').style.display = 'block';
+        $('token').value = '';
+    }
+
+    $('unlock').addEventListener('click', async () => {
+        const t = $('token').value.trim();
+        if (!t) { $('gate-err').textContent = 'Введите токен'; return; }
+        localStorage.setItem(LS_KEY, t);
+        try {
+            await api('/api/admin/stats');
+            showDash();
+        } catch (e) {
+            localStorage.removeItem(LS_KEY);
+            $('gate-err').textContent = e.message;
+        }
+    });
+    $('token').addEventListener('keydown', e => { if (e.key === 'Enter') $('unlock').click(); });
+    $('refresh').addEventListener('click', loadAll);
+    $('logout').addEventListener('click', logout);
+
+    // auto-unlock if a token is already stored
+    if (localStorage.getItem(LS_KEY)) {
+        api('/api/admin/stats').then(showDash).catch(() => localStorage.removeItem(LS_KEY));
+    }
+})();
+</script>
+</body>
+</html>
