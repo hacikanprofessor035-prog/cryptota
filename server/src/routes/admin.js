@@ -3,7 +3,11 @@
 // Auth: every request must carry `Authorization: Bearer <ADMIN_TOKEN>`.
 // Set ADMIN_TOKEN in Railway (or .env locally) before the endpoint is usable.
 // If ADMIN_TOKEN is unset, ALL requests are rejected with 503 — fail closed.
+//
+// The comparison uses timingSafeEqual to prevent a remote timing attack
+// that could leak the token one byte at a time.
 import express from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import * as db from '../lib/db.js';
 
 const router = express.Router();
@@ -16,7 +20,10 @@ function adminAuth(req, res, next) {
         });
     }
     const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    if (provided !== expected) {
+    // Compare lengths first; timingSafeEqual requires equal-length buffers.
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
         return res.status(401).json({ error: 'Invalid admin token' });
     }
     next();
@@ -37,13 +44,19 @@ router.get('/stats', async (_req, res) => {
 // GET /api/admin/recent-signups — last 20 users (id, email, created, last login).
 router.get('/recent-signups', async (_req, res) => {
     try {
-        const rows = await db.runRaw(
+        const rows = await db.query(
             `SELECT id, email, name, created_at, last_login_at
              FROM users ORDER BY id DESC LIMIT 20`
         );
-        // runRaw doesn't return rows — use the helper. We'll add a proper
-        // helper if this endpoint becomes a regular part of the admin UI.
-        res.json({ items: [], note: 'see db.getStats for aggregate counts' });
+        res.json({
+            items: rows.map(r => ({
+                id: r.id,
+                email: r.email,
+                name: r.name,
+                createdAt: r.created_at,
+                lastLoginAt: r.last_login_at,
+            })),
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

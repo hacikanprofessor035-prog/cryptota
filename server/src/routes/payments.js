@@ -275,14 +275,10 @@ async function pollOnce() {
         // Advance cursor for ALL pending payments to the newest tx we saw.
         // (Even payments we didn't find a match for — this prevents re-scanning.)
         if (sharedNewest?.lt) {
-            for (const p of pending) {
-                try {
-                    await db.updatePayment(p.id, {
-                        last_seen_lt: sharedNewest.lt,
-                        last_seen_utime: sharedNewest.ut,
-                    });
-                } catch { /* non-fatal */ }
-            }
+            await db.batchAdvancePaymentCursor(
+                pending.map(p => p.id),
+                { lt: sharedNewest.lt, ut: sharedNewest.ut },
+            );
         }
         await db.setPollCheckpoint(Date.now());
     } catch (e) {

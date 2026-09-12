@@ -146,9 +146,14 @@ passwordResetRouter.post('/reset-password', async (req, res, next) => {
             return res.status(400).json({ error: 'Invalid or expired code' });
         }
 
-        // Mark this code used, then invalidate all other unused codes for
-        // the same user (a leaked code shouldn't outlive the first use).
-        await db.markResetCodeUsed(row.id);
+        // Atomic claim: only the first concurrent request with this code
+        // gets `claimed === true`. The second sees false and bails out
+        // with the same generic error so the caller can't distinguish the
+        // race from an invalid code.
+        const claimed = await db.consumeResetCode(row.id);
+        if (!claimed) {
+            return res.status(400).json({ error: 'Invalid or expired code' });
+        }
 
         const user = await db.get(row.user_id);
         if (!user) {
