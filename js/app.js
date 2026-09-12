@@ -1,6 +1,162 @@
 /* === CryptoTA — Main App === */
 
 const App = (() => {
+    /* ============== Watchlist (favorites) ============== */
+    const Watchlist = (() => {
+        const LS_KEY = 'cryptota.watchlist';
+        let items = [];           // symbols in add order
+        let collapsed = false;
+
+        function load() {
+            try {
+                items = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+                collapsed = localStorage.getItem(LS_KEY + '.collapsed') === '1';
+            } catch (e) { items = []; }
+        }
+
+        function save() {
+            try {
+                localStorage.setItem(LS_KEY, JSON.stringify(items));
+                localStorage.setItem(LS_KEY + '.collapsed', collapsed ? '1' : '0');
+            } catch (e) { /* full */ }
+        }
+
+        function has(sym) { return items.includes(sym); }
+        function toggle(sym) {
+            const i = items.indexOf(sym);
+            if (i >= 0) { items.splice(i, 1); }
+            else items.push(sym);
+            save();
+            render();
+            renderPairList();
+        }
+        function toggleCollapse() {
+            collapsed = !collapsed;
+            save();
+            render();
+        }
+        function render() {
+            const box = document.getElementById('watchlist');
+            const wrap = document.getElementById('watchlistItems');
+            if (!box || !wrap) return;
+            box.style.display = items.length ? '' : 'none';
+            if (!items.length) return;
+            const colBtn = document.getElementById('watchlistCollapse');
+            if (colBtn) colBtn.textContent = collapsed ? '+' : '−';
+            if (collapsed) { wrap.style.display = 'none'; return; }
+            wrap.style.display = '';
+            wrap.innerHTML = items.map(sym => {
+                const p = state.pairs.find(x => x.symbol === sym);
+                const t = state.tickers[sym];
+                const last = t ? t.last : null;
+                const change = t ? t.change : null;
+                const cls = change > 0 ? 'up' : (change < 0 ? 'down' : 'flat');
+                const sign = change > 0 ? '+' : '';
+                const base = p ? p.base : sym.replace(/USDT$|BTC$|ETH$|BNB$/, '');
+                const quote = p ? '/' + p.quote : '';
+                return `
+                    <div class="pair-row wl-row ${sym === state.activePair ? 'active' : ''}" data-symbol="${sym}">
+                        <button class="pair-fav active" data-fav="${sym}" title="Remove from favorites">★</button>
+                        <div class="pair-symbol">
+                            <span class="pair-symbol-base">${base}</span>
+                            <span class="pair-symbol-quote">${quote}</span>
+                        </div>
+                        <div class="pair-price">${last !== null ? formatPrice(last) : '—'}</div>
+                        <div class="pair-change ${cls}">${change !== null ? sign + change.toFixed(2) + '%' : '—'}</div>
+                        <div class="pair-volume"><span class="pair-volume-text">${t ? formatVolume(t.quoteVolume) : ''}</span></div>
+                    </div>
+                `;
+            }).join('');
+            wrap.querySelectorAll('.wl-row').forEach(row => {
+                row.addEventListener('click', () => selectPair(row.dataset.symbol));
+            });
+            wrap.querySelectorAll('.pair-fav').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    toggle(btn.dataset.fav);
+                });
+            });
+        }
+
+        return { load, has, toggle, toggleCollapse, render };
+    })();
+
+
+    /* ============== Share links (chart state in URL hash) ==============
+     * Format: #/<SYMBOL>/<TF>?d=<base64url drawing objects>
+     * Compact JSON: lines as arrays [type?, t1, p1, t2?, p2?]. */
+    const Share = (() => {
+        const b64e = (s) => btoa(JSON.stringify(s)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const b64d = (s) => JSON.parse(atob(s.replace(/-/g, '+').replace(/_/g, '/')));
+
+        function encodeObjects(objs) {
+            const compact = objs.map(o => {
+                if (o.type === 'hline') return [1, o.price];
+                if (o.type === 'rect') return [2, o.time1, o.price1, o.time2, o.price2];
+                if (o.type === 'fib') return [3, o.time1, o.price1, o.time2, o.price2];
+                return [0, o.time1, o.price1, o.time2, o.price2];   // segment
+            });
+            return b64e(compact);
+        }
+
+        function decodeObjects(code) {
+            try {
+                const compact = b64d(code);
+                return compact.map(c => {
+                    const k = c[0];
+                    if (k === 1) return { type: 'hline', price: c[1] };
+                    if (k === 2) return { type: 'rect', time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
+                    if (k === 3) return { type: 'fib', time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
+                    return { time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
+                }).filter(o => o && (o.price != null || o.price1 != null));
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function buildHash() {
+            const objs = window.Drawing ? Drawing.getObjects() : [];
+            let hash = `#/${state.activePair || 'BTCUSDT'}/${state.timeframe}`;
+            if (objs.length) hash += `?d=${encodeObjects(objs)}`;
+            return hash;
+        }
+
+        function copyLink() {
+            const url = location.origin + location.pathname + buildHash();
+            const done = () => showToast('Link copied — share your setup!');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+            } else fallbackCopy(url, done);
+        }
+
+        function fallbackCopy(text, done) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); done(); }
+            catch (e) { showToast('Copy failed — URL is in the address bar'); }
+            ta.remove();
+        }
+
+        /* parse location.hash → {symbol, tf, objects} | null */
+        function parseHash() {
+            const h = location.hash;
+            if (!h.startsWith('#/')) return null;
+            const m = h.match(/^#\/([A-Z0-9]+)\/(\w+)(?:\?d=([\w-]+))?/);
+            if (!m) return null;
+            return {
+                symbol: m[1],
+                tf: m[2],
+                objects: m[3] ? decodeObjects(m[3]) : null
+            };
+        }
+
+        return { encodeObjects, decodeObjects, buildHash, copyLink, parseHash };
+    })();
+
+
     const state = {
         pairs: [],                // [{symbol, base, quote}]
         tickers: {},              // symbol -> {last, change, ...}
@@ -28,11 +184,21 @@ const App = (() => {
             document.getElementById('chartOverlay')
         );
 
+        // Watchlist (favorites)
+        Watchlist.load();
+        const colBtn = document.getElementById('watchlistCollapse');
+        if (colBtn) colBtn.addEventListener('click', Watchlist.toggleCollapse);
+
+        // Share link button
+        const shareBtn = document.getElementById('shareButton');
+        if (shareBtn) shareBtn.addEventListener('click', Share.copyLink);
+
         // Drawing layer (trend lines) — inject coordinate API
         if (window.Drawing) {
             Drawing.setChartAPI(ChartEngine.getCoordAPI(), null, updateDrawUI);
             bindDrawingUI();
         }
+        bindScreenshotButton();
 
         await loadPairs();
         bindUI();
@@ -42,8 +208,21 @@ const App = (() => {
         renderActiveIndicators();
         bindStrategyPanel();
 
-        // Default to BTC/USDT
-        if (state.pairs.length > 0) {
+        // Default to BTC/USDT — or the pair from a share link (#/SYMBOL/TF)
+        const shared = Share.parseHash();
+        if (shared && state.pairs.some(p => p.symbol === shared.symbol)) {
+            // apply timeframe from the link
+            const tfBtn = document.querySelector(`.tf-btn[data-tf="${shared.tf}"]`);
+            if (tfBtn) tfBtn.click();
+            await selectPair(shared.symbol);
+            // apply shared drawings AFTER the pair's data is loaded
+            if (shared.objects && shared.objects.length && window.Drawing) {
+                Drawing.setSymbol(shared.symbol);
+                Drawing.setObjects(shared.objects);
+                ChartEngine.render();
+                showToast(`Loaded shared setup (${shared.objects.length} objects)`, 3000);
+            }
+        } else if (state.pairs.length > 0) {
             const btc = state.pairs.find(p => p.symbol === 'BTCUSDT') || state.pairs[0];
             await selectPair(btc.symbol);
         }
@@ -72,6 +251,7 @@ const App = (() => {
         state.tickerStream = new BinanceAPI.TickerStream((map) => {
             Object.assign(state.tickers, map);
             renderPairList();
+            Watchlist.render();
             updateHeaderPrice();
         });
         state.tickerStream.connect();
@@ -80,6 +260,9 @@ const App = (() => {
     async function selectPair(symbol, forceReload = false) {
         if (state.activePair === symbol && !forceReload) return;
         state.activePair = symbol;
+
+        // Share link: keep URL in sync (no drawings in plain pair switching)
+        history.replaceState(null, '', `#/${symbol}/${state.timeframe}`);
 
         // Drawing layer: switch storage key to the new pair
         if (window.Drawing) Drawing.setSymbol(symbol);
@@ -90,6 +273,7 @@ const App = (() => {
         document.querySelectorAll('.pair-row').forEach(el => {
             el.classList.toggle('active', el.dataset.symbol === symbol);
         });
+        Watchlist.render();
 
         const loading = document.getElementById('chartLoading');
         loading.style.display = 'block';
@@ -282,9 +466,39 @@ const App = (() => {
         // Show/hide sidebar
         document.getElementById('toggleSidebar').addEventListener('click', () => {
             document.body.classList.add('sidebar-hidden');
+            document.body.classList.remove('sidebar-mobile-open');
         });
         document.getElementById('showSidebarBtn').addEventListener('click', () => {
             document.body.classList.remove('sidebar-hidden');
+            document.body.classList.remove('sidebar-mobile-open');
+        });
+
+        // Mobile drawer: click the ▶ to slide the panel over the chart
+        const showBtn = document.getElementById('showSidebarBtn');
+        if (showBtn) {
+            // on phones the ▶ button becomes a drawer toggle
+            showBtn.addEventListener('click', () => {
+                if (window.matchMedia('(max-width: 640px)').matches) {
+                    document.body.classList.toggle('sidebar-mobile-open');
+                }
+            });
+        }
+        // Close the drawer when a pair is picked or the backdrop is tapped
+        document.addEventListener('click', (e) => {
+            if (!document.body.classList.contains('sidebar-mobile-open')) return;
+            const sidebar = document.getElementById('sidebar');
+            const inSidebar = sidebar.contains(e.target);
+            const isToggle = e.target.closest('#showSidebarBtn, #toggleSidebar');
+            if (!inSidebar && !isToggle) {
+                document.body.classList.remove('sidebar-mobile-open');
+            }
+        });
+        // ...and when a pair inside the drawer is selected (pair click IS inside sidebar)
+        document.querySelectorAll('#pairList, #watchlistItems').forEach(wrap => {
+            wrap.addEventListener('click', (e) => {
+                const row = e.target.closest('.pair-row');
+                if (row) document.body.classList.remove('sidebar-mobile-open');
+            });
         });
 
         // Indicator / strategy / auth / upgrade modal helpers
@@ -434,8 +648,10 @@ const App = (() => {
             // Bar width: 0..100% relative to max volume of visible list
             const pct = (vol && maxVol > 0) ? Math.max(4, Math.min(100, (vol / maxVol) * 100)) : 0;
             const barCls = change > 0 ? 'buy' : (change < 0 ? 'sell' : '');
+            const fav = Watchlist.has(p.symbol);
             return `
                 <div class="pair-row ${p.symbol === state.activePair ? 'active' : ''}" data-symbol="${p.symbol}">
+                    <button class="pair-fav ${fav ? 'active' : ''}" data-fav="${p.symbol}" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? '★' : '☆'}</button>
                     <div class="pair-symbol">
                         <span class="pair-symbol-base">${p.base}</span>
                         <span class="pair-symbol-quote">/${p.quote}</span>
@@ -453,6 +669,12 @@ const App = (() => {
         // Bind clicks
         list.querySelectorAll('.pair-row').forEach(row => {
             row.addEventListener('click', () => selectPair(row.dataset.symbol));
+        });
+        list.querySelectorAll('.pair-fav').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                Watchlist.toggle(btn.dataset.fav);
+            });
         });
     }
 
@@ -911,7 +1133,13 @@ const App = (() => {
             setDrawCursor(tool);
             showToast(tool === 'line'
                 ? 'Draw mode: click & drag to draw a trend line'
-                : 'Normal mode: drag to pan', 2000);
+                : tool === 'hline'
+                    ? 'Level mode: click to place a horizontal line, drag to adjust'
+                    : tool === 'rect'
+                        ? 'Zone mode: click & drag to mark a range'
+                        : tool === 'fib'
+                            ? 'Fib fan: drag along a trend to fan out the levels'
+                            : 'Normal mode: drag to pan', 2000);
         });
 
         // Keyboard: Delete hovered line, Escape cancels drawing
@@ -923,6 +1151,61 @@ const App = (() => {
                 ChartEngine.render();
             }
         });
+    }
+
+    /* ============== Screenshot (chart PNG) ============== */
+    function bindScreenshotButton() {
+        const btn = document.getElementById('screenshotButton');
+        if (!btn) return;
+        btn.addEventListener('click', downloadChartPNG);
+    }
+
+    function downloadChartPNG() {
+        const src = document.getElementById('chartCanvas');
+        if (!src) return;
+
+        // Compose: dark bg + chart + watermark header
+        const out = document.createElement('canvas');
+        const dpr = window.devicePixelRatio || 1;
+        out.width = src.width;
+        out.height = src.height;
+        const ctx = out.getContext('2d');
+        ctx.fillStyle = '#0a0e1a';
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.drawImage(src, 0, 0);
+
+        // Header strip: CryptoTA · SYMBOL · TF · date — drawn on top of chart padding area
+        const hdr = `${state.activePair || ''} · ${state.timeframe.toUpperCase()} · ${new Date().toISOString().slice(0, 10)}`;
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.font = '600 12px JetBrains Mono, monospace';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(232, 236, 244, 0.9)';
+        const cw = src.width / dpr;
+        ctx.fillText(hdr, cw - 8, 6);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(201, 168, 87, 0.95)';       // amber
+        ctx.fillText('CryptoTA', 8, 6);
+        // watermark bottom-right
+        ctx.globalAlpha = 0.35;
+        ctx.font = '10px JetBrains Mono, monospace';
+        ctx.fillText('cryptota.pages.dev', 8, src.height / dpr - 16);
+        ctx.restore();
+
+        // Download
+        out.toBlob((blob) => {
+            if (!blob) { showToast('Screenshot failed'); return; }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `cryptota-${state.activePair || 'chart'}-${state.timeframe || ''}-${Date.now()}.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 3000);
+            showToast('Chart saved as PNG');
+        }, 'image/png');
     }
 
     function setDrawCursor(tool) {

@@ -215,13 +215,67 @@ body.sidebar-hidden {
 
 .pair-row {
     display: grid;
-    grid-template-columns: 1fr 80px 60px 1fr;
+    grid-template-columns: 18px 1fr 80px 60px 1fr;
     align-items: center;
     padding: 8px 14px;
     cursor: pointer;
     border-bottom: 1px solid rgba(255, 255, 255, 0.02);
     transition: background 0.1s;
 }
+
+/* Favorites star (SUBTLE: dim by default, amber when active) */
+.pair-fav {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--text-3, #4a5164);
+    cursor: pointer;
+    opacity: 0.55;
+    transition: color 0.15s, opacity 0.15s, transform 0.1s;
+}
+
+.pair-fav:hover {
+    opacity: 1;
+    transform: scale(1.15);
+}
+
+.pair-fav.active {
+    color: var(--accent);
+    opacity: 0.9;
+}
+
+/* Watchlist block */
+.watchlist {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.watchlist-header {
+    cursor: default;
+}
+
+.watchlist-title {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.watchlist-collapse {
+    background: none;
+    border: none;
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.watchlist-collapse:hover { color: var(--text-0); }
+
+.watchlist-items .pair-row { padding: 6px 14px; }
 
 .pair-row:hover {
     background: var(--bg-2);
@@ -1378,12 +1432,41 @@ body.sidebar-hidden .show-sidebar-btn {
     .auth-button { font-size: 11px; padding: 4px 8px; }
 }
 
+/* ===== Mobile layout (phones) =====
+ * Existing drawer block at the end of this file handles the sidebar
+ * (body.sidebar-mobile-open). These rules tune the rest of the UI. */
+@media (max-width: 640px) {
+    .topbar {
+        flex-wrap: wrap;
+        row-gap: 6px;
+        padding: 6px 8px;
+    }
+    .topbar-controls {
+        flex-wrap: wrap;
+        row-gap: 4px;
+    }
+    .draw-tools { flex-wrap: wrap; }
+    .symbol-change { display: none; }
+    /* chart takes the full width; paddings shrink */
+    .chart-wrapper { padding: 0 2px; }
+    .active-indicators { padding: 4px 8px; flex-wrap: wrap; }
+    .strategy-panel { width: min(94vw, 290px); max-height: 30vh; }
+    .watchlist-items .pair-row,
+    .pair-row { padding: 7px 10px; }
+    .pair-volume-bar { height: 10px; }
+    .crosshair-info { font-size: 10px; }
+}
+
 @media (max-width: 640px) {
     body { grid-template-columns: 0 1fr; }
-    .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 240px; z-index: 50; transform: translateX(-100%); transition: transform 0.2s; }
-    body.sidebar-mobile-open .sidebar { transform: translateX(0); }
+    /* sidebar is position:fixed here → out of flow; keep main in column 2 */
+    .main { grid-column: 2; }
+    .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(84vw, 300px); z-index: 50; transform: translateX(-100%); transition: transform 0.2s; box-shadow: none; }
+    body.sidebar-mobile-open .sidebar { transform: translateX(0); box-shadow: 8px 0 24px rgba(0,0,0,0.5); }
     body.sidebar-mobile-open .show-sidebar-btn { display: none; }
+    /* mobile: the ▶ tab is always visible as the drawer toggle */
     body:not(.sidebar-mobile-open) .show-sidebar-btn { display: block; }
+    body:not(.sidebar-mobile-open) .show-sidebar-btn::after { content: '☰'; font-size: 13px; }
 }
 
 /* === Strategy button in topbar === */

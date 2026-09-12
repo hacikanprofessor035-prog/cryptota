@@ -1,12 +1,16 @@
-/* === CryptoTA — Chart Drawing Layer (trend lines) ===
- * Lines are stored in DATA coordinates (candle time + price) so they
+/* === CryptoTA — Chart Drawing Layer (trend lines + levels + zones + fib fan) ===
+ * Objects are stored in DATA coordinates (candle time + price) so they
  * survive zoom / pan / timeframe switches and page reloads.
  * Storage: localStorage, keyed per symbol ("cryptota.draw.BTCUSDT").
+ *  - trend line: {id, time1, price1, time2, price2}          (no type field)
+ *  - horizontal: {id, type: 'hline', price}
+ *  - rect zone:  {id, type: 'rect', time1, price1, time2, price2}
+ *  - fib fan:    {id, type: 'fib', time1, price1, time2, price2}
  *
  * Integration:
  *  - Drawing.setChartAPI({xForIndex, indexForX, yForPrice, getCandles,
- *    priceArea}, symbol) is called after ChartEngine.init().
- *  - ChartEngine.render() calls Drawing.render(ctx, range) (step 4.5).
+ *    priceArea, chartEdges, formatPrice}, symbol) — after ChartEngine.init().
+ *  - ChartEngine.render() calls Drawing.render(ctx, range) (step 7.5).
  *  - ChartEngine mouse handlers call Drawing.onMouseDown/Move/Up first;
  *    if they return true, the event is consumed (no pan).
  */
@@ -14,13 +18,17 @@
 const Drawing = (() => {
     const LS_PREFIX = 'cryptota.draw.';
     const LINE_COLOR = '#c9a857';        // amber — matches indicator palette
+    const HLINE_COLOR = '#7a8a9e';       // muted slate — distinct from segments
+    const RECT_COLOR = '#c9a857';        // amber border, faint amber fill
+    const FIB_COLOR = '#9b8ec9';         // violet — from indicator palette
+    const FIB_LEVELS = [0.382, 0.5, 0.618, 0.786];
     const LINE_WIDTH = 1.2;
     const LINE_ALPHA = 0.85;
     const HANDLE_ALPHA = 0.9;
 
-    let api = null;              // {xForIndex, indexForX, yForPrice, getCandles, priceArea}
-    let lines = [];              // [{id, time1, price1, time2, price2}]
-    let tool = 'off';            // 'off' | 'line'
+    let api = null;              // {xForIndex, indexForX, yForPrice, getCandles, priceArea, chartEdges, formatPrice}
+    let lines = [];              // mixed: segments + hlines
+    let tool = 'off';            // 'off' | 'line' | 'hline'
     let drawing = false;
     let currentLine = null;      // line being drawn
     let hoverLineId = null;      // line under cursor
@@ -75,6 +83,23 @@ const Drawing = (() => {
     function getTool() { return tool; }
     function getLineCount() { return lines.length; }
 
+    /* ===== Share: export/import objects ===== */
+    function getObjects() {
+        return JSON.parse(JSON.stringify(lines));
+    }
+
+    function setObjects(objs) {
+        if (!Array.isArray(objs)) return;
+        // re-id to avoid collisions
+        lines = objs.map(o => {
+            const copy = { ...o };
+            const prefix = copy.type === 'hline' ? 'H' : copy.type === 'rect' ? 'R' : copy.type === 'fib' ? 'F' : 'L';
+            copy.id = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            return copy;
+        });
+        save();
+    }
+
     /* ===== time ↔ candle index (fractional, for smooth rendering) ===== */
     function timeToIndex(t) {
         if (!api) return null;
@@ -119,49 +144,224 @@ const Drawing = (() => {
         if (!api) return;
         ctx.save();
 
-        // Saved lines
+        // Saved objects
         for (const line of lines) {
-            const a = endPoint(line, 1, range);
-            const b = endPoint(line, 2, range);
-            if (!a || !b) continue;
-            const active = hoverLineId === line.id || dragLineId === line.id;
-
-            ctx.strokeStyle = rgba(LINE_COLOR, active ? 0.95 : LINE_ALPHA);
-            ctx.lineWidth = active ? 1.4 : LINE_WIDTH;
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.stroke();
-
-            // endpoint handles — only when active (SUBTLE)
-            if (active) {
-                drawHandle(ctx, a.x, a.y);
-                drawHandle(ctx, b.x, b.y);
+            if (line.type === 'hline') {
+                renderHLine(ctx, line, range);
+            } else if (line.type === 'rect') {
+                renderRect(ctx, line, range);
+            } else if (line.type === 'fib') {
+                renderFib(ctx, line, range);
+            } else {
+                renderSegment(ctx, line, range);
             }
         }
 
         // Preview while drawing
         if (drawing && currentLine && cursorPos) {
-            const a = endPoint(currentLine, 1, range);
-            const preview = {
-                time1: currentLine.time1,
-                price1: currentLine.price1,
-                time2: timeAt(cursorPos.x),
-                price2: priceAt(cursorPos.y, range)
-            };
-            const b = endPoint(preview, 2, range);
-            if (a && b) {
-                ctx.strokeStyle = rgba(LINE_COLOR, 0.5);
+            if (currentLine.type === 'hline') {
+                // horizontal: full-width dotted line at cursor price
+                const y = api.yForPrice(currentLine.price1, range);
+                const edges = api.chartEdges();
+                ctx.strokeStyle = rgba(HLINE_COLOR, 0.5);
                 ctx.lineWidth = 1;
                 ctx.setLineDash([4, 4]);
                 ctx.beginPath();
-                ctx.moveTo(a.x, a.y);
-                ctx.lineTo(b.x, b.y);
+                ctx.moveTo(edges.left, y);
+                ctx.lineTo(edges.right, y);
                 ctx.stroke();
                 ctx.setLineDash([]);
+            } else if (currentLine.type === 'rect') {
+                // rect zone: from anchor to cursor
+                const a = endPoint(currentLine, 1, range);
+                const bx = api.xForIndex(timeToIndex(timeAt(cursorPos.x)) || 0);
+                const by = api.yForPrice(priceAt(cursorPos.y, range), range);
+                if (a) {
+                    const x = Math.min(a.x, bx), y = Math.min(a.y, by);
+                    const w = Math.abs(bx - a.x), h = Math.abs(by - a.y);
+                    ctx.fillStyle = rgba(RECT_COLOR, 0.08);
+                    ctx.fillRect(x, y, w, h);
+                    ctx.strokeStyle = rgba(RECT_COLOR, 0.5);
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeRect(x, y, w, h);
+                    ctx.setLineDash([]);
+                }
+            } else if (currentLine.type === 'fib') {
+                // fib fan preview: base + rays from anchor to cursor
+                const preview = { time1: currentLine.time1, price1: currentLine.price1, time2: timeAt(cursorPos.x), price2: priceAt(cursorPos.y, range) };
+                drawFibFan(ctx, preview, range, true);
+            } else {
+                const a = endPoint(currentLine, 1, range);
+                const preview = {
+                    time1: currentLine.time1,
+                    price1: currentLine.price1,
+                    time2: timeAt(cursorPos.x),
+                    price2: priceAt(cursorPos.y, range)
+                };
+                const b = endPoint(preview, 2, range);
+                if (a && b) {
+                    ctx.strokeStyle = rgba(LINE_COLOR, 0.5);
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
             }
         }
         ctx.restore();
+    }
+
+    function renderSegment(ctx, line, range) {
+        const a = endPoint(line, 1, range);
+        const b = endPoint(line, 2, range);
+        if (!a || !b) return;
+        const active = hoverLineId === line.id || dragLineId === line.id;
+
+        ctx.strokeStyle = rgba(LINE_COLOR, active ? 0.95 : LINE_ALPHA);
+        ctx.lineWidth = active ? 1.4 : LINE_WIDTH;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+
+        // endpoint handles — only when active (SUBTLE)
+        if (active) {
+            drawHandle(ctx, a.x, a.y);
+            drawHandle(ctx, b.x, b.y);
+        }
+    }
+
+    function renderHLine(ctx, line, range) {
+        if (line.price < range.min || line.price > range.max) return; // off-screen
+        const y = api.yForPrice(line.price, range);
+        const edges = api.chartEdges();
+        const active = hoverLineId === line.id || dragLineId === line.id;
+
+        // full-width solid line, slightly subtler than segments
+        ctx.strokeStyle = rgba(HLINE_COLOR, active ? 0.95 : 0.55);
+        ctx.lineWidth = active ? 1.4 : 1;
+        ctx.setLineDash(active ? [] : [6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(edges.left, y);
+        ctx.lineTo(edges.right, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // price pill on the right axis (like the last-price label)
+        const text = api.formatPrice(line.price);
+        ctx.font = '10px JetBrains Mono, monospace';
+        ctx.textBaseline = 'middle';
+        const textW = ctx.measureText(text).width;
+        const padX = 5;
+        const boxX = edges.right + 1;
+        const boxW = textW + padX * 2;
+        ctx.fillStyle = rgba(HLINE_COLOR, active ? 0.95 : 0.75);
+        ctx.fillRect(boxX, y - 7, boxW, 14);
+        ctx.fillStyle = '#0a0e1a';
+        ctx.textAlign = 'left';
+        ctx.fillText(text, boxX + padX, y + 0.5);
+        ctx.textBaseline = 'alphabetic';
+
+        // drag handle dot on the line (visible on hover/drag)
+        if (active) {
+            drawHandle(ctx, edges.left + 14, y);
+        }
+    }
+
+    function renderRect(ctx, line, range) {
+        const a = endPoint(line, 1, range);
+        const b = endPoint(line, 2, range);
+        if (!a || !b) return;
+        const active = hoverLineId === line.id || dragLineId === line.id;
+
+        const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+        if (w < 1 || h < 1) return;
+
+        // faint fill + amber border
+        ctx.fillStyle = rgba(RECT_COLOR, active ? 0.14 : 0.07);
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = rgba(RECT_COLOR, active ? 0.95 : 0.6);
+        ctx.lineWidth = active ? 1.4 : LINE_WIDTH;
+        ctx.setLineDash(active ? [] : [6, 4]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+
+        // corner handles — only when active (SUBTLE)
+        if (active) {
+            drawHandle(ctx, a.x, a.y);
+            drawHandle(ctx, b.x, b.y);
+            drawHandle(ctx, a.x, b.y);
+            drawHandle(ctx, b.x, a.y);
+        }
+    }
+
+    /* Fib fan: base trendline A→B; rays from A through the fib retracement
+     * levels of the AB move, extended to the right chart edge. */
+    function drawFibFan(ctx, line, range, preview) {
+        const a = endPoint(line, 1, range);
+        const b = endPoint(line, 2, range);
+        if (!a || !b) return;
+        const edges = api.chartEdges();
+
+        // base line (dashed, subdued)
+        ctx.strokeStyle = rgba(FIB_COLOR, preview ? 0.4 : 0.45);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // rays from A through fib levels of AB, to the right edge
+        const endX = edges.right + 2;
+        for (const lvl of FIB_LEVELS) {
+            // point on AB at fraction lvl (from B back toward A):
+            //   full fib retracement means price returns to A's level at 100%,
+            //   so the ray target is A.y + (B.y - A.y) * (1 - lvl) → but that
+            //   collapses; standard fan: target = B.y + (A.y - B.y) * lvl,
+            //   i.e. lvl-share of the way back from B to A, at B.x.
+            const ty = b.y + (a.y - b.y) * lvl;
+            ctx.strokeStyle = rgba(FIB_COLOR, preview ? 0.35 : 0.5);
+            ctx.lineWidth = lvl === 0.618 ? 1.2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(endX, a.y + (ty - a.y) * ((endX - a.x) / Math.max(b.x - a.x, 1)));
+            ctx.stroke();
+        }
+
+        // tiny level label at each ray end (SUBTLE)
+        if (!preview) {
+            ctx.font = '9px JetBrains Mono, monospace';
+            ctx.fillStyle = rgba(FIB_COLOR, 0.7);
+            ctx.textAlign = 'right';
+            for (const lvl of FIB_LEVELS) {
+                const ty = b.y + (a.y - b.y) * lvl;
+                const ex = endX;
+                const ey = a.y + (ty - a.y) * ((ex - a.x) / Math.max(b.x - a.x, 1));
+                ctx.fillText(lvl.toFixed(3).slice(1), ex - 4, ey - 3);
+            }
+            ctx.textAlign = 'left';
+        }
+    }
+
+    function renderFib(ctx, line, range) {
+        const active = hoverLineId === line.id || dragLineId === line.id;
+        drawFibFan(ctx, line, range, false);
+        // handles on A and B — only when active (SUBTLE)
+        if (active) {
+            const a = endPoint(line, 1, range);
+            const b = endPoint(line, 2, range);
+            if (a && b) {
+                drawHandle(ctx, a.x, a.y);
+                drawHandle(ctx, b.x, b.y);
+            }
+        }
     }
 
     function drawHandle(ctx, x, y) {
@@ -178,33 +378,54 @@ const Drawing = (() => {
     function onMouseDown(pos, range) {
         if (tool === 'off' || !api) return false;
 
-        // Edit existing: handles or body of a hovered line
+        // Edit existing: handles or body of a hovered object
         const hit = hitTest(pos, range);
         if (hit) {
             dragLineId = hit.id;
-            if (hit.handle) {
+            if (hit.obj.type === 'hline') {
+                // whole-line vertical move: keep the price offset from cursor
+                dragOffset = {
+                    handle: 0,
+                    dPrice1: hit.obj.price - priceAt(pos.y, range)
+                };
+            } else if (hit.handle) {
                 dragOffset = { handle: hit.handle };
             } else {
                 // whole-line move: keep offsets from cursor
                 dragOffset = {
                     handle: 0,
-                    dTime1: hit.line.time1 - timeAt(pos.x),
-                    dPrice1: hit.line.price1 - priceAt(pos.y, range),
-                    dTime2: hit.line.time2 - timeAt(pos.x),
-                    dPrice2: hit.line.price2 - priceAt(pos.y, range)
+                    dTime1: hit.obj.time1 - timeAt(pos.x),
+                    dPrice1: hit.obj.price1 - priceAt(pos.y, range),
+                    dTime2: hit.obj.time2 - timeAt(pos.x),
+                    dPrice2: hit.obj.price2 - priceAt(pos.y, range)
                 };
             }
             return true;
         }
 
-        // Start a new line
+        // Start a new object
         drawing = true;
-        currentLine = {
-            time1: timeAt(pos.x),
-            price1: priceAt(pos.y, range),
-            time2: null,
-            price2: null
-        };
+        if (tool === 'hline') {
+            currentLine = {
+                type: 'hline',
+                price: priceAt(pos.y, range)
+            };
+        } else if (tool === 'rect' || tool === 'fib') {
+            currentLine = {
+                type: tool,
+                time1: timeAt(pos.x),
+                price1: priceAt(pos.y, range),
+                time2: null,
+                price2: null
+            };
+        } else {
+            currentLine = {
+                time1: timeAt(pos.x),
+                price1: priceAt(pos.y, range),
+                time2: null,
+                price2: null
+            };
+        }
         return true;
     }
 
@@ -217,7 +438,9 @@ const Drawing = (() => {
         if (dragLineId != null) {
             const line = lines.find(l => l.id === dragLineId);
             if (line) {
-                if (dragOffset.handle === 0) {
+                if (line.type === 'hline') {
+                    line.price = priceAt(pos.y, range) + dragOffset.dPrice1;
+                } else if (dragOffset.handle === 0) {
                     line.time1 = timeAt(pos.x) + dragOffset.dTime1;
                     line.price1 = priceAt(pos.y, range) + dragOffset.dPrice1;
                     line.time2 = timeAt(pos.x) + dragOffset.dTime2;
@@ -246,15 +469,24 @@ const Drawing = (() => {
         }
         if (drawing) {
             if (currentLine) {
-                currentLine.time2 = timeAt(pos.x);
-                currentLine.price2 = priceAt(pos.y, range);
-                // keep only if it is a real line, not a stray click
-                const dx = Math.abs(currentLine.time2 - currentLine.time1);
-                const dy = Math.abs(currentLine.price2 - currentLine.price1);
-                if (dx > 0 || dy > 0) {
-                    currentLine.id = 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                if (currentLine.type === 'hline') {
+                    // final price = wherever the cursor ended up
+                    currentLine.price = priceAt(pos.y, range);
+                    currentLine.id = 'H' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
                     lines.push(currentLine);
                     save();
+                } else {
+                    currentLine.time2 = timeAt(pos.x);
+                    currentLine.price2 = priceAt(pos.y, range);
+                    // keep only if it is a real shape, not a stray click
+                    const dx = Math.abs(currentLine.time2 - currentLine.time1);
+                    const dy = Math.abs(currentLine.price2 - currentLine.price1);
+                    if (dx > 0 || dy > 0) {
+                        const prefix = currentLine.type === 'rect' ? 'R' : currentLine.type === 'fib' ? 'F' : 'L';
+                        currentLine.id = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                        lines.push(currentLine);
+                        save();
+                    }
                 }
             }
             drawing = false;
@@ -270,16 +502,35 @@ const Drawing = (() => {
         // keep in-progress drawing alive if mouse returns, but stop preview
     }
 
-    /* handle/body hit test; returns {id, handle (1|2|0), line} or null */
+    /* hit test; returns {id, handle (1|2|0), obj} or null */
     function hitTest(pos, range) {
         for (let i = lines.length - 1; i >= 0; i--) {
             const line = lines[i];
+            if (line.type === 'hline') {
+                if (line.price < range.min || line.price > range.max) continue;
+                const y = api.yForPrice(line.price, range);
+                if (Math.abs(pos.y - y) <= 5) return { id: line.id, handle: 0, obj: line };
+                continue;
+            }
             const a = endPoint(line, 1, range);
             const b = endPoint(line, 2, range);
             if (!a || !b) continue;
-            if (dist(pos, a) <= 7) return { id: line.id, handle: 1, line };
-            if (dist(pos, b) <= 7) return { id: line.id, handle: 2, line };
-            if (pointNearLine(pos, a, b, 6)) return { id: line.id, handle: 0, line };
+            if (line.type === 'rect') {
+                // corners (diagonal pair 1/2 drags the whole rect shape)
+                if (dist(pos, a) <= 7) return { id: line.id, handle: 1, obj: line };
+                if (dist(pos, b) <= 7) return { id: line.id, handle: 2, obj: line };
+                // edges or body → move whole rect
+                const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+                const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+                const nearEdge =
+                    pos.x >= x0 - 5 && pos.x <= x1 + 5 &&
+                    pos.y >= y0 - 5 && pos.y <= y1 + 5;
+                if (nearEdge) return { id: line.id, handle: 0, obj: line };
+                continue;
+            }
+            if (dist(pos, a) <= 7) return { id: line.id, handle: 1, obj: line };
+            if (dist(pos, b) <= 7) return { id: line.id, handle: 2, obj: line };
+            if (pointNearLine(pos, a, b, 6)) return { id: line.id, handle: 0, obj: line };
         }
         return null;
     }
@@ -324,7 +575,7 @@ const Drawing = (() => {
     return {
         setChartAPI, setSymbol, setTool, clearAll,
         render, onMouseDown, onMouseMove, onMouseUp, onMouseLeave,
-        getTool, getLineCount,
+        getTool, getLineCount, getObjects, setObjects,
         onKeyDown
     };
 
