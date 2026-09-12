@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# SPA — only real entry points
+Sitemap: https://cryptota.pages.dev/sitemap.xml
