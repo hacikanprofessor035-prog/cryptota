@@ -1741,7 +1741,6 @@ body.sidebar-hidden .show-sidebar-btn {
 .ct-icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* === Stats modal === */
-.stats-modal { max-width: 460px; }
 .stats-grid {
     display: flex;
     flex-direction: column;
