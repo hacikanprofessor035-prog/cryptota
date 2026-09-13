@@ -225,6 +225,39 @@ const MIGRATIONS = [
             CREATE INDEX idx_client_logs_ts ON client_logs(ts);
         `,
     },
+    {
+        version: 6,
+        name: 'price alerts + push subscriptions',
+        sql: `
+            CREATE TABLE alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                direction TEXT NOT NULL CHECK (direction IN ('above','below')),
+                target_price TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                triggered_at TEXT,
+                triggered_price TEXT,
+                notified_at TEXT
+            );
+            CREATE INDEX idx_alerts_user ON alerts(user_id, status);
+            CREATE INDEX idx_alerts_pending ON alerts(status, symbol);
+
+            CREATE TABLE push_subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                endpoint TEXT NOT NULL UNIQUE,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                user_agent TEXT,
+                created_at TEXT NOT NULL,
+                last_success TEXT,
+                last_failure TEXT,
+                fail_count INTEGER NOT NULL DEFAULT 0
+            );
+        `,
+    },
 ];
 
 // ===== Helpers (sync, on an already-loaded db) =====
@@ -759,4 +792,130 @@ export async function getClientLogStats() {
         `SELECT message, COUNT(*) AS n, MAX(ts) AS last_ts
          FROM client_logs GROUP BY message ORDER BY n DESC LIMIT 10`);
     return { perDay, top };
+}
+
+// ===== Price alerts + push subscriptions =====
+
+export async function createAlert({ userId, symbol, direction, targetPrice }) {
+    await getDb();
+    const now = new Date().toISOString();
+    const stmt = _db.prepare(
+        `INSERT INTO alerts (user_id, symbol, direction, target_price, created_at)
+         VALUES (?, ?, ?, ?, ?)`);
+    stmt.run([userId, symbol, direction, String(targetPrice), now]);
+    stmt.free();
+    scheduleWrite();
+    return queryOne(_db, 'SELECT last_insert_rowid() AS id');
+}
+
+export async function listUserAlerts(userId, limit = 50) {
+    await getDb();
+    return queryAll(_db,
+        `SELECT * FROM alerts WHERE user_id = ? ORDER BY id DESC LIMIT ?`,
+        [userId, limit]);
+}
+
+export async function deleteAlert(userId, alertId) {
+    await getDb();
+    const stmt = _db.prepare(
+        `DELETE FROM alerts WHERE id = ? AND user_id = ?`);
+    stmt.run([alertId, userId]);
+    const n = _db.getRowsModified();
+    stmt.free();
+    scheduleWrite();
+    return n;
+}
+
+export async function countActiveAlerts(userId) {
+    await getDb();
+    const row = queryOne(_db,
+        `SELECT COUNT(*) AS n FROM alerts WHERE user_id = ? AND status = 'active'`,
+        [userId]);
+    return row?.n ?? 0;
+}
+
+// All pending alerts, optionally narrowed to one symbol (worker).
+export async function listPendingAlerts(symbol = null) {
+    await getDb();
+    if (symbol) {
+        return queryAll(_db,
+            `SELECT * FROM alerts WHERE status = 'active' AND symbol = ?`,
+            [symbol]);
+    }
+    return queryAll(_db, `SELECT * FROM alerts WHERE status = 'active'`);
+}
+
+export async function markAlertTriggered(alertId, triggeredPrice) {
+    await getDb();
+    const now = new Date().toISOString();
+    const stmt = _db.prepare(
+        `UPDATE alerts SET status='triggered', triggered_at=?, triggered_price=?, notified_at=? WHERE id=?`);
+    stmt.run([now, String(triggeredPrice), now, alertId]);
+    stmt.free();
+    scheduleWrite();
+}
+
+export async function savePushSubscription({ userId, endpoint, p256dh, auth, userAgent }) {
+    await getDb();
+    const now = new Date().toISOString();
+    const stmt = _db.prepare(
+        `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(endpoint) DO UPDATE SET
+            user_id = excluded.user_id,
+            p256dh = excluded.p256dh,
+            auth = excluded.auth,
+            user_agent = excluded.user_agent,
+            fail_count = 0,
+            last_failure = NULL`);
+    stmt.run([userId || null, endpoint, p256dh, auth, userAgent || null, now]);
+    stmt.free();
+    scheduleWrite();
+}
+
+export async function removePushSubscription(endpoint) {
+    await getDb();
+    const stmt = _db.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`);
+    stmt.run([endpoint]);
+    const n = _db.getRowsModified();
+    stmt.free();
+    scheduleWrite();
+    return n;
+}
+
+export async function getPushSubscriptionsForUser(userId) {
+    await getDb();
+    return queryAll(_db,
+        `SELECT * FROM push_subscriptions WHERE user_id = ? ORDER BY id DESC`,
+        [userId]);
+}
+
+export async function markPushSuccess(endpoint) {
+    await getDb();
+    const stmt = _db.prepare(
+        `UPDATE push_subscriptions SET last_success = ?, fail_count = 0 WHERE endpoint = ?`);
+    stmt.run([new Date().toISOString(), endpoint]);
+    stmt.free();
+    scheduleWrite();
+}
+
+// Returns true when the subscription should be dropped (unsubscribed/410).
+export async function markPushFailure(endpoint, statusCode) {
+    await getDb();
+    const stmt = _db.prepare(
+        `UPDATE push_subscriptions SET last_failure = ?, fail_count = fail_count + 1 WHERE endpoint = ?`);
+    stmt.run([String(statusCode || 'err') + ' @ ' + new Date().toISOString(), endpoint]);
+    stmt.free();
+    scheduleWrite();
+    const row = queryOne(_db,
+        `SELECT fail_count FROM push_subscriptions WHERE endpoint = ?`, [endpoint]);
+    return (row?.fail_count ?? 0) >= 5;
+}
+
+export async function dropPushSubscription(endpoint) {
+    await getDb();
+    const stmt = _db.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`);
+    stmt.run([endpoint]);
+    stmt.free();
+    scheduleWrite();
 }

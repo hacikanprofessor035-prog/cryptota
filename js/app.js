@@ -518,6 +518,9 @@ const App = (() => {
         // Expose toast for UI module
         window.appShowToast = showToast;
 
+        // Price alerts (bell button + panel) — needs Session, registers SW
+        if (window.AlertsUI) AlertsUI.init();
+
     }
 
 

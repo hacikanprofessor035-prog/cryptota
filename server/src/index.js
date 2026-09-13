@@ -14,8 +14,10 @@ import { licenseRouter } from './routes/license.js';
 import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import adminRouter from './routes/admin.js';
+import { alertsRouter } from './routes/alerts.js';
 import { authGlobalLimiter } from './lib/rate-limit.js';
 import { clientLogLimiter } from './lib/rate-limit.js';
+import { startAlertChecker } from './lib/alert-checker.js';
 
 // Periodic flush of debounced user activity → DB file. Without this, a
 // long-running read-only session (user just looking at prices) would
@@ -130,6 +132,7 @@ app.use('/api/auth', authGlobalLimiter);
     app.use('/api/auth', authRouter);
     app.use('/api/auth', passwordResetRouter);
     app.use('/api/license', licenseRouter);
+    app.use('/api/alerts', alertsRouter);
     app.use('/api/payments', paymentsRouter);
     app.use('/api/admin', adminRouter);
 
@@ -169,6 +172,9 @@ export async function startServer() {
 
     // Start polling worker for TON payments
     startPaymentPolling();
+
+    // Start the price-alert checker worker (1 min tick, unref'd).
+    startAlertChecker();
 
     // Periodic activity flush so the DB file stays current even during
     // long read-only sessions (see lib/db.js ACTIVITY_DEBOUNCE_MS).
