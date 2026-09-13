@@ -333,6 +333,16 @@ const ChartEngine = (() => {
         // 3. Candles / line / area
         drawSeries(visible, range);
 
+        // 3.5 Compare-pairs overlay (normalized % line, second pair)
+        if (window.Compare) {
+            Compare.draw(ctx, range, {
+                xForIndex, yForPrice, priceArea,
+                getCandles: () => state.candles,
+                getViewStart: () => state.viewStart,
+                getViewCount: () => state.viewCount,
+            });
+        }
+
         // 4. Overlay indicators
         for (const ind of state.overlayIndicators) {
             drawOverlayIndicator(ind, range);
