@@ -15,6 +15,7 @@ import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.
 import { webhooksRouter } from './routes/webhooks.js';
 import adminRouter from './routes/admin.js';
 import { alertsRouter } from './routes/alerts.js';
+import { drawingsRouter } from './routes/drawings.js';
 import { authGlobalLimiter } from './lib/rate-limit.js';
 import { clientLogLimiter } from './lib/rate-limit.js';
 import { startAlertChecker } from './lib/alert-checker.js';
@@ -133,6 +134,7 @@ app.use('/api/auth', authGlobalLimiter);
     app.use('/api/auth', passwordResetRouter);
     app.use('/api/license', licenseRouter);
     app.use('/api/alerts', alertsRouter);
+    app.use('/api/drawings', drawingsRouter);
     app.use('/api/payments', paymentsRouter);
     app.use('/api/admin', adminRouter);
 

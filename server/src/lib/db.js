@@ -258,6 +258,19 @@ const MIGRATIONS = [
             );
         `,
     },
+    {
+        version: 7,
+        name: 'cloud drawings sync (Pro)',
+        sql: `
+            CREATE TABLE user_drawings (
+                user_id INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                objects TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, symbol)
+            );
+        `,
+    },
 ];
 
 // ===== Helpers (sync, on an already-loaded db) =====
@@ -918,4 +931,36 @@ export async function dropPushSubscription(endpoint) {
     stmt.run([endpoint]);
     stmt.free();
     scheduleWrite();
+}
+
+// ===== Cloud drawings (Pro sync) =====
+// One row per (user, symbol) holding the drawing objects JSON.
+
+export async function getDrawing(userId, symbol) {
+    await getDb();
+    const row = queryOne(_db,
+        `SELECT objects, updated_at FROM user_drawings WHERE user_id = ? AND symbol = ?`,
+        [userId, symbol]);
+    return row || null;
+}
+
+export async function saveDrawing(userId, symbol, objectsJson) {
+    await getDb();
+    const stmt = _db.prepare(
+        `INSERT INTO user_drawings (user_id, symbol, objects, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, symbol) DO UPDATE SET
+            objects = excluded.objects,
+            updated_at = excluded.updated_at`);
+    stmt.run([userId, symbol, objectsJson, new Date().toISOString()]);
+    stmt.free();
+    scheduleWrite();
+}
+
+export async function listDrawingSymbols(userId) {
+    await getDb();
+    return queryAll(_db,
+        `SELECT symbol, updated_at, LENGTH(objects) AS size
+         FROM user_drawings WHERE user_id = ? ORDER BY updated_at DESC`,
+        [userId]);
 }

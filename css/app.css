@@ -1896,3 +1896,16 @@ body.sidebar-hidden .show-sidebar-btn {
 @media (max-width: 640px) {
     .alerts-panel { top: 48px; right: 8px; width: calc(100vw - 16px); }
 }
+
+/* ============ Cloud sync badge ============ */
+.cloud-badge {
+    font-size: 13px;
+    color: var(--accent, #5cc8c0);
+    opacity: 0.7;
+    cursor: default;
+    align-self: center;
+    margin-left: 2px;
+}
+.cloud-badge.cloud-error {
+    color: #e06c75;
+}

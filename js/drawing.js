@@ -49,6 +49,7 @@ const Drawing = (() => {
         if (sym === symbol) return;
         sym = symbol;
         load();
+        cloudPull(symbol).catch(() => {});   // fill from cloud if local empty
     }
 
     function load() {
@@ -65,6 +66,96 @@ const Drawing = (() => {
         try {
             localStorage.setItem(LS_PREFIX + sym, JSON.stringify(lines));
         } catch (e) { /* storage full — ignore */ }
+        scheduleCloudPush();
+    }
+
+    /* ===== Cloud sync (Pro) =====
+     * Pull on symbol switch if we're logged in + Pro; debounced push
+     * after local edits. Silent on free tier (no nagging), silent on
+     * network errors (sync must never break drawing). */
+    let cloudPushTimer = null;
+    let lastSyncedJson = null;
+
+    function cloudApi(path, opts = {}) {
+        const token = window.Session?.token?.();
+        const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+        if (token) headers.Authorization = 'Bearer ' + token;
+        return fetch(path, { ...opts, headers });
+    }
+
+    function scheduleCloudPush() {
+        if (cloudPushTimer) clearTimeout(cloudPushTimer);
+        cloudPushTimer = setTimeout(cloudPush, 1500);
+    }
+
+    async function cloudPush() {
+        if (!sym || !window.Session?.isAuthenticated?.()) return;
+        const json = JSON.stringify(lines);
+        if (json === lastSyncedJson) return;   // nothing changed since last sync
+        try {
+            const res = await cloudApi('/api/drawings/' + sym, {
+                method: 'PUT',
+                body: JSON.stringify({ objects: lines }),
+            });
+            if (res.ok) {
+                lastSyncedJson = json;
+                updateCloudBadge('saved');
+            } else if (res.status === 402) {
+                updateCloudBadge('free');      // Pro only — quietly note it
+            } else if (res.status !== 401) {
+                updateCloudBadge('error');
+            }
+        } catch (e) {
+            updateCloudBadge('error');
+        }
+    }
+
+    async function cloudPull(symbol) {
+        if (!window.Session?.isAuthenticated?.()) return false;
+        try {
+            const res = await cloudApi('/api/drawings/' + symbol);
+            if (!res.ok) return false;
+            const j = await res.json();
+            if (!Array.isArray(j.objects) || j.objects.length === 0) return false;
+            // Cloud has something for this symbol. Only overlay if local is
+            // empty or older (no local timestamps — prefer non-empty choice:
+            // keep local if it differs AND user edited recently... simplest
+            // honest rule: local wins if non-empty; cloud only fills empty).
+            const local = localStorage.getItem(LS_PREFIX + symbol);
+            if (local && JSON.parse(local).length > 0) {
+                lastSyncedJson = local;
+                return false;                    // keep local drawings
+            }
+            setObjects(j.objects);
+            lastSyncedJson = JSON.stringify(getObjects());
+            updateCloudBadge('saved');
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    let cloudBadge = null;
+    function updateCloudBadge(state) {
+        if (!cloudBadge) {
+            cloudBadge = document.getElementById('cloudSyncBadge');
+            if (!cloudBadge) return;
+        }
+        const map = {
+            saved: ['☁', 'Drawings synced to cloud'],
+            free: ['☁', 'Cloud sync is a Pro feature'],
+            error: ['☁', 'Cloud sync failed (offline?)'],
+        };
+        const [icon, title] = map[state] || ['', ''];
+        if (!icon) { cloudBadge.style.display = 'none'; return; }
+        cloudBadge.style.display = '';
+        cloudBadge.textContent = icon;
+        cloudBadge.title = title;
+        cloudBadge.classList.toggle('cloud-error', state === 'error');
+        if (state === 'saved' || state === 'free') {
+            clearTimeout(updateCloudBadge._t);
+            updateCloudBadge._t = setTimeout(() => { if (cloudBadge) cloudBadge.style.display = 'none'; }, 3000);
+        }
     }
 
     function setTool(t) {
@@ -576,6 +667,7 @@ const Drawing = (() => {
         setChartAPI, setSymbol, setTool, clearAll,
         render, onMouseDown, onMouseMove, onMouseUp, onMouseLeave,
         getTool, getLineCount, getObjects, setObjects,
+        cloudPull, cloudPush,
         onKeyDown
     };
 
