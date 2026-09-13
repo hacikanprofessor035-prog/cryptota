@@ -387,6 +387,46 @@
         </div>
     </div>
 
+    <script>
+    // Client error beacon — must load BEFORE every other script.
+    // Catches window.onerror + unhandledrejection, POSTs one small report
+    // to /api/client-log (202, fire-and-forget, never throws itself).
+    (function () {
+        'use strict';
+        var sent = 0, MAX = 10; // hard cap per page: a broken page loop must not spam
+        function send(level, msg, stack) {
+            if (sent >= MAX || !navigator.sendBeacon && !window.fetch) return;
+            sent++;
+            var m = String(msg).slice(0, 2000);
+            if (stack) m += '\n---\n' + String(stack).slice(0, 1800);
+            var body = JSON.stringify({
+                level: level,
+                message: m,
+                url: location.pathname + location.hash,
+                t: Date.now()
+            });
+            try {
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon('/api/client-log', new Blob([body], { type: 'application/json' }));
+                } else {
+                    fetch('/api/client-log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
+                }
+            } catch (e) { /* never break the site for logging */ }
+        }
+        window.__clientLog = send;
+        window.addEventListener('error', function (ev) {
+            if (ev.error && ev.error.stack) {
+                send('error', ev.message, ev.error.stack);
+            } else {
+                send('error', ev.message + ' @ ' + (ev.filename || '') + ':' + (ev.lineno || 0));
+            }
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+            var r = ev.reason;
+            send('rejection', (r && r.message) || String(r), r && r.stack);
+        });
+    })();
+    </script>
     <script src="js/binance.js?v=663c1fe"></script>
     <script src="js/config.js?v=663c1fe"></script>
     <script src="js/license.js?v=663c1fe"></script>

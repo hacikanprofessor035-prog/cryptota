@@ -204,6 +204,27 @@ const MIGRATIONS = [
             CREATE INDEX idx_password_resets_expires ON password_resets(expires_at);
         `,
     },
+    {
+        version: 5,
+        name: 'client error logs',
+        sql: `
+            CREATE TABLE client_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                level TEXT NOT NULL DEFAULT 'error',
+                message TEXT NOT NULL,
+                source TEXT,
+                line TEXT,
+                col TEXT,
+                stack TEXT,
+                url TEXT,
+                user_agent TEXT,
+                user_id INTEGER,
+                ip TEXT
+            );
+            CREATE INDEX idx_client_logs_ts ON client_logs(ts);
+        `,
+    },
 ];
 
 // ===== Helpers (sync, on an already-loaded db) =====
@@ -681,4 +702,61 @@ export async function updatePasswordHash(userId, passwordHash) {
         `UPDATE users SET password_hash = ? WHERE id = ?`,
         [passwordHash, userId]);
     scheduleWrite();
+}
+
+// ===== Client error logs (frontend window.onerror beacon) =====
+
+// Insert a frontend error report. Caps string fields so a hostile client
+// can't bloat the DB, and caps the table itself (see trimClientLogs).
+export async function insertClientLog({ level, message, source, line, col, stack, url, userAgent, userId, ip }) {
+    await getDb();
+    const cap = (s, n) => (typeof s === 'string' ? s.slice(0, n) : (s == null ? null : String(s)));
+    const stmt = _db.prepare(
+        `INSERT INTO client_logs (ts, level, message, source, line, col, stack, url, user_agent, user_id, ip)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    stmt.run([
+        new Date().toISOString(),
+        cap(level, 16) || 'error',
+        cap(message, 2000),
+        cap(source, 500),
+        cap(line, 16),
+        cap(col, 16),
+        cap(stack, 4000),
+        cap(url, 500),
+        cap(userAgent, 500),
+        (Number.isInteger(userId) && userId > 0) ? userId : null,
+        cap(ip, 64),
+    ]);
+    stmt.free();
+    scheduleWrite();
+}
+
+// Keep the newest N rows; drop the rest (runs inline, cheap for small N).
+export async function trimClientLogs(keep = 2000) {
+    await getDb();
+    const stmt = _db.prepare(
+        `DELETE FROM client_logs WHERE id NOT IN
+         (SELECT id FROM client_logs ORDER BY id DESC LIMIT ?)`);
+    stmt.run([keep]);
+    stmt.free();
+    scheduleWrite();
+}
+
+// Newest rows for the admin dashboard.
+export async function getClientLogs(limit = 50) {
+    await getDb();
+    return queryAll(_db,
+        `SELECT * FROM client_logs ORDER BY id DESC LIMIT ?`, [limit]);
+}
+
+// Aggregate: error counts per day + top repeating messages.
+export async function getClientLogStats() {
+    await getDb();
+    const perDay = queryAll(_db,
+        `SELECT substr(ts, 1, 10) AS day, COUNT(*) AS n
+         FROM client_logs GROUP BY day ORDER BY day DESC LIMIT 14`);
+    const top = queryAll(_db,
+        `SELECT message, COUNT(*) AS n, MAX(ts) AS last_ts
+         FROM client_logs GROUP BY message ORDER BY n DESC LIMIT 10`);
+    return { perDay, top };
 }

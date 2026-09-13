@@ -111,4 +111,25 @@ router.get('/health', async (_req, res) => {
     }
 });
 
+// GET /api/admin/client-logs — newest frontend error reports.
+router.get('/client-logs', async (req, res) => {
+    try {
+        const limit = Math.min(Number(req.query.limit) || 50, 200);
+        res.json(await db.getClientLogs(limit));
+    } catch (e) {
+        console.error('[admin/client-logs] error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/admin/client-log-stats — errors per day + top messages.
+router.get('/client-log-stats', async (_req, res) => {
+    try {
+        res.json(await db.getClientLogStats());
+    } catch (e) {
+        console.error('[admin/client-log-stats] error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 export default router;

@@ -161,6 +161,14 @@
             </table></div>
         </section>
 
+        <section>
+            <h3>Ошибки фронтенда <span class="muted" id="err-summary"></span></h3>
+            <div class="table-scroll"><table id="t-errors">
+                <thead><tr><th>Время</th><th>Уровень</th><th>Сообщение</th><th>Страница</th></tr></thead>
+                <tbody></tbody>
+            </table></div>
+        </section>
+
         <footer>
             <span id="srv-info"></span>
             <span class="spacer" style="flex:1"></span>
@@ -257,18 +265,21 @@
 
     async function loadAll() {
         try {
-            const [stats, users, payments, licenses, health] = await Promise.all([
+            const [stats, users, payments, licenses, health, errors, errStats] = await Promise.all([
                 api('/api/admin/stats'),
                 api('/api/admin/recent-signups'),
                 api('/api/admin/payments?limit=20'),
                 api('/api/admin/licenses?limit=20'),
                 api('/api/admin/health'),
+                api('/api/admin/client-logs?limit=20'),
+                api('/api/admin/client-log-stats'),
             ]);
             $('err-banner').style.display = 'none';
             renderStats(stats);
             renderUsers(users.items);
             renderPayments(payments.items);
             renderLicenses(licenses.items);
+            renderClientErrors(errors, errStats);
             const up = health.uptimeSec ? Math.floor(health.uptimeSec / 3600) + 'ч ' + Math.floor(health.uptimeSec % 3600 / 60) + 'м' : '—';
             $('srv-info').textContent = `uptime ${up} · node ${health.nodeVersion || '—'} · ${health.serverTime || ''}`;
         } catch (e) {
@@ -276,6 +287,25 @@
             $('err-banner').textContent = 'Ошибка: ' + e.message + (String(e.message).includes('Токен') ? '' : ' (повтор через 30с)');
             if (String(e.message).includes('Токен')) { logout(); }
         }
+    }
+
+    function renderClientErrors(rows, stats) {
+        const tbody = document.querySelector('#t-errors tbody');
+        if (!Array.isArray(rows) || rows.length === 0) {
+            $('err-summary').textContent = '— пока пусто';
+            tbody.innerHTML = `<tr><td colspan="4" class="muted">Ни одной ошибки — красота! (◕‿◕)</td></tr>`;
+            return;
+        }
+        const today = new Date().toISOString().slice(0, 10);
+        const nToday = (stats?.perDay || []).find(d => d.day === today)?.n ?? 0;
+        const total = (stats?.perDay || []).reduce((s, d) => s + d.n, 0);
+        $('err-summary').textContent = `· сегодня ${nToday} · за 14 дней ${total}`;
+        tbody.innerHTML = rows.map(e => `<tr>
+            <td class="num">${fmtDate(e.ts)}</td>
+            <td>${e.level === 'rejection' ? 'unhandled' : esc(e.level)}</td>
+            <td title="${esc(e.stack || '')}">${esc(String(e.message || '').split('\n')[0].slice(0, 120))}</td>
+            <td class="num">${esc(e.url || '—')}</td>
+        </tr>`).join('');
     }
 
     function startTimer() {

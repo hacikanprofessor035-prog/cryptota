@@ -15,6 +15,7 @@ import { paymentsRouter, PRICING, startPaymentPolling } from './routes/payments.
 import { webhooksRouter } from './routes/webhooks.js';
 import adminRouter from './routes/admin.js';
 import { authGlobalLimiter } from './lib/rate-limit.js';
+import { clientLogLimiter } from './lib/rate-limit.js';
 
 // Periodic flush of debounced user activity → DB file. Without this, a
 // long-running read-only session (user just looking at prices) would
@@ -93,6 +94,37 @@ app.use('/api/auth', authGlobalLimiter);
                 address: config.ton.address ? config.ton.address.slice(0, 6) + '…' + config.ton.address.slice(-4) : null,
             },
         });
+    });
+
+    // Client error beacon — anonymous, rate-limited, fire-and-forget.
+    // The frontend sends one small POST per window.onerror / unhandled
+    // rejection. Never fails the client's request with a hard error:
+    // logging must not make the site *more* broken.
+    app.post('/api/client-log', clientLogLimiter, async (req, res) => {
+        try {
+            const b = req.body || {};
+            if (typeof b.message !== 'string' || !b.message.trim()) {
+                return res.status(400).json({ error: 'message required' });
+            }
+            await db.insertClientLog({
+                level: b.level,
+                message: b.message,
+                source: b.source,
+                line: b.line,
+                col: b.col,
+                stack: b.stack,
+                url: b.url,
+                userAgent: req.headers['user-agent'],
+                userId: req.user?.id,
+                ip: req.ip,
+            });
+            // Opportunistic trim — cheap, keeps the table bounded.
+            if (Math.random() < 0.02) await db.trimClientLogs();
+            res.status(202).json({ ok: true });
+        } catch (e) {
+            console.error('[client-log] error:', e);
+            res.status(202).json({ ok: true }); // still "ok" — see comment above
+        }
     });
 
     app.use('/api/auth', authRouter);

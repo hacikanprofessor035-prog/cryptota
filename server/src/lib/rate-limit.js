@@ -68,3 +68,15 @@ export const authGlobalLimiter = rateLimit({
     skip: () => isTest,
     message: { error: 'Too many requests. Slow down.' },
 });
+
+// POST /api/client-log — frontend error beacon. Anonymous, but a buggy
+// or hostile page loop must not be able to spam the DB: 30/min per IP
+// (a real user page generates at most a couple of errors per minute).
+export const clientLogLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders,
+    legacyHeaders: false,
+    skip: () => isTest,
+    message: { error: 'Too many reports.' },
+});
