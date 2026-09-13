@@ -188,7 +188,7 @@ const AlertsUI = (() => {
                 <button type="submit" class="alert-add-btn" title="Add alert">Add</button>
             </form>
             <div class="alerts-push">
-                <button id="enablePush" class="push-btn">🔔 Enable notifications</button>
+                <button id="enablePush" class="push-btn"><svg class="icon-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> Enable notifications</button>
                 <button id="testPush" class="push-btn ghost" style="display:none">Test push</button>
             </div>
         `;
@@ -226,10 +226,10 @@ const AlertsUI = (() => {
         btn.textContent = '…';
         try {
             await subscribePush();
-            btn.textContent = '✓ Notifications enabled';
+            btn.textContent = '✓ Notifications enabled';   // plain text ok — transient state
             $('#testPush').style.display = '';
         } catch (e) {
-            btn.textContent = '🔔 Enable notifications';
+            btn.innerHTML = BELL_S + ' Enable notifications';
             btn.disabled = false;
             renderError(e.message);
         }
@@ -259,12 +259,15 @@ const AlertsUI = (() => {
         if (visible) loadAlerts();
     }
 
+    const BELL_S = '<svg class="icon-svg" width="13" height="13" style="vertical-align:-2px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+    const BELL_ICON = '<svg class="icon-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+
     function buildBell() {
         const btn = document.createElement('button');
         btn.id = 'alertsBell';
         btn.className = 'ct-icon-btn';
         btn.title = 'Price alerts (Pro)';
-        btn.textContent = '🔔';
+        btn.innerHTML = BELL_ICON;
         const anchor = document.getElementById('tierBadge') || document.getElementById('authButton');
         anchor.parentNode.insertBefore(btn, anchor);
         btn.addEventListener('click', togglePanel);

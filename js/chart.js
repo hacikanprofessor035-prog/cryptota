@@ -219,7 +219,13 @@ const ChartEngine = (() => {
     }
 
     function setChartType(t) {
-        state.chartType = t;
+        if (t === 'hollow') {
+            state.chartType = 'candles';
+            state.hollowCandles = true;
+        } else {
+            state.chartType = t;
+            state.hollowCandles = (t === 'hollow');
+        }
         render();
     }
 
@@ -451,10 +457,18 @@ const ChartEngine = (() => {
             ctx.stroke();
 
             // Body
-            ctx.fillStyle = color;
             const bodyTop = Math.min(yO, yC);
             const bodyH = Math.max(1, Math.abs(yC - yO));
-            ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
+            if (state.hollowCandles && c.close < c.open) {
+                // Hollow bearish body: stroke only, chart bg shows through.
+                // Bullish candles stay solid (classic pro style).
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x - candleW / 2 + 0.5, bodyTop + 0.5, candleW - 1, bodyH - 1);
+            } else {
+                ctx.fillStyle = color;
+                ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
+            }
         }
     }
 
