@@ -871,6 +871,11 @@ const App = (() => {
             document.getElementById('strategyPanel').style.display = 'none';
             document.getElementById('showStrategyPanelBtn').style.display = 'flex';
         });
+
+        // Export backtest to CSV
+        document.getElementById('exportCSVBtn')?.addEventListener('click', () => {
+            exportBacktestCSV();
+        });
         document.getElementById('showStrategyPanelBtn').addEventListener('click', () => {
             document.getElementById('strategyPanel').style.display = 'flex';
             document.getElementById('showStrategyPanelBtn').style.display = 'none';
@@ -948,6 +953,82 @@ const App = (() => {
             document.getElementById('strategyPanel').style.display = 'flex';
             document.getElementById('showStrategyPanelBtn').style.display = 'none';
         }
+    }
+
+
+    /* ===== Export active-strategy backtest results to CSV =====
+     * Rebuilds the trade list from signals (same buy-at-close→sell-at-close
+     * logic as Strategies._buildResult) and writes a downloadable CSV:
+     * summary rows + one row per trade with real dates. */
+    function exportBacktestCSV() {
+        const actives = state.strategies.filter(s => s.enabled && s.result?.signals?.length);
+        if (!actives.length) {
+            showToast('No active strategies with signals to export');
+            return;
+        }
+        const sym = state.activePair || 'CHART';
+        const tf = state.timeframe;
+        const escCell = (v) => {
+            const t = String(v ?? '');
+            return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+        };
+        const lines = [];
+        lines.push(`CryptoTA backtest — ${sym} ${tf} — ${new Date().toISOString().slice(0, 10)}`);
+        lines.push('');
+        lines.push('Strategy,Params,Signals,Trades,Open,Wins,Losses,Win rate %,Total PnL %,Current signal');
+        for (const s of actives) {
+            const st = s.result.stats;
+            const params = Object.entries(s.params).map(([k, v]) => k + '=' + v).join(' ');
+            lines.push([
+                s.name, params, s.result.signals.length, st.trades, st.open,
+                st.wins, st.losses, st.winRate.toFixed(1), st.pnl.toFixed(2), st.currentSignal
+            ].map(escCell).join(','));
+        }
+        lines.push('');
+        lines.push('Trades');
+        lines.push('Strategy,Side,Entry time,Entry price,Exit time,Exit price,PnL %,Open,Entry reason,Exit reason');
+        const fmtTime = (ts) => new Date(ts).toISOString().replace('T', ' ').slice(0, 16);
+        for (const s of actives) {
+            // rebuild trades from signals (same rules as _buildResult)
+            const candles = state.candles;
+            let pos = null;
+            for (const sig of s.result.signals) {
+                const price = candles[sig.i]?.close;
+                if (price == null) continue;
+                if (sig.type === 'BUY' && !pos) {
+                    pos = { i: sig.i, price, reason: sig.reason };
+                } else if (sig.type === 'SELL' && pos) {
+                    const pnl = (price - pos.price) / pos.price * 100;
+                    lines.push([
+                        s.name, 'LONG',
+                        fmtTime(candles[pos.i].time), pos.price,
+                        fmtTime(candles[sig.i].time), price,
+                        pnl.toFixed(2), 'no',
+                        pos.reason || '', sig.reason || ''
+                    ].map(escCell).join(','));
+                    pos = null;
+                }
+            }
+            if (pos) {
+                const last = candles[candles.length - 1];
+                const pnl = (last.close - pos.price) / pos.price * 100;
+                lines.push([
+                    s.name, 'LONG',
+                    fmtTime(candles[pos.i].time), pos.price,
+                    fmtTime(last.time), last.close,
+                    pnl.toFixed(2), 'yes',
+                    pos.reason || '', '(still open)'
+                ].map(escCell).join(','));
+            }
+        }
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cryptota-backtest-${sym}-${tf}-${Date.now()}.csv`.toLowerCase();
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('CSV downloaded');
     }
 
     function renderStrategyPanelList() {
