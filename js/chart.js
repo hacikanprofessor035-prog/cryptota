@@ -38,6 +38,7 @@ const ChartEngine = (() => {
         height: 0,
         crosshair: null,
         lastPriceLine: true,
+        tfMs: 0,                  // candle period length (ms), set by app
         overlayIndicators: [],
         paneIndicators: [],       // [{ind, data, min, max, height}]
         strategies: [],           // [{key, name, signals: [{i, type}], color, enabled}]
@@ -312,6 +313,10 @@ const ChartEngine = (() => {
 
         const range = priceRange(visible);
         lastRange = range;   // cached for Drawing mouse handlers
+
+        // 0. Watermark — symbol · timeframe, very subtle (branding for
+        // user screenshots; visually it's texture, not decoration)
+        drawWatermark();
 
         // 1. Grid
         drawGrid(range);
@@ -1027,6 +1032,77 @@ const ChartEngine = (() => {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(formatPrice(last.close), state.width - state.paddingRight + 4, y);
+
+        // Progress of the current candle's life: thin track under the
+        // last price label showing how much of the current candle period
+        // has elapsed (e.g. 71% of the 4h candle has formed).
+        drawCandleProgress(range);
+    }
+
+    /* === Watermark: SYMBOL · TF in the middle of the chart ===
+     * Renders BELOW candles (drawn early), alpha so low it reads as
+     * texture. Standard in pro terminals; brands every screenshot. */
+    let watermarkText = '';
+
+    const TF_MS = {
+        '1m': 60_000, '5m': 300_000, '15m': 900_000,
+        '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000, '1w': 604_800_000,
+    };
+
+    function setWatermark(symbol, timeframe) {
+        const t = (symbol || '') + (timeframe ? ' · ' + timeframe : '');
+        // candle-period length for the progress track (fallback: derive
+        // from actual candle spacing if the TF is exotic)
+        if (TF_MS[timeframe]) state.tfMs = TF_MS[timeframe];
+        else if (state.candles.length >= 2) {
+            const d = state.candles[1].time - state.candles[0].time;
+            if (d > 0) state.tfMs = d;
+        }
+        if (t !== watermarkText) {
+            watermarkText = t;
+            render();   // repaint if we're already showing
+        }
+    }
+
+    function drawWatermark() {
+        if (!watermarkText) return;
+        const cx = state.paddingLeft + (state.width - state.paddingLeft - state.paddingRight) / 2;
+        const { top, height } = priceArea();
+        const cy = top + height / 2;
+
+        ctx.save();
+        ctx.font = '700 44px ' + 'JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(155,164,184,0.05)';
+        ctx.fillText(watermarkText, cx, cy);
+        ctx.restore();
+    }
+
+    /* === Candle close progress ===
+     * A 2px track in the right axis gutter, right beside the last-price
+     * label: fills up as the current candle period elapses. Subtle —
+     * 0.35 alpha, accent color. */
+    function drawCandleProgress(range) {
+        const last = state.candles[state.candles.length - 1];
+        if (!last || !last.time || !state.tfMs) return;
+
+        // how far into the current candle period are we
+        const period = state.tfMs;
+        const elapsed = (Date.now() - last.time) % period;
+        const frac = Math.max(0, Math.min(1, elapsed / period));
+
+        const y = yForPrice(last.close, range);
+        const x = state.width - state.paddingRight + 1;
+        const w = state.paddingRight - 5;   // label width minus padding
+        if (w < 8) return;
+
+        // track
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';
+        ctx.fillRect(x, y + 11, w, 2);
+        // fill
+        ctx.fillStyle = 'rgba(92,200,192,0.35)';
+        ctx.fillRect(x, y + 11, w * frac, 2);
     }
 
     /* ============== Strategy arrows ============== */
@@ -1332,6 +1408,7 @@ const ChartEngine = (() => {
         appendCandle,
         setChartType,
         setIndicators,
+        setWatermark,
         resetView,
         getState: () => state,
         /* Drawing layer API (data↔pixel transforms + candles) */

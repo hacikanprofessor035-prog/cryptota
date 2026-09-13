@@ -261,6 +261,9 @@ const App = (() => {
         if (state.activePair === symbol && !forceReload) return;
         state.activePair = symbol;
 
+        // Chart watermark: SYMBOL · TF
+        if (window.ChartEngine?.setWatermark) ChartEngine.setWatermark(symbol, state.timeframe);
+
         // Share link: keep URL in sync (no drawings in plain pair switching)
         history.replaceState(null, '', `#/${symbol}/${state.timeframe}`);
 
@@ -324,6 +327,10 @@ const App = (() => {
     async function changeTimeframe(tf) {
         if (state.timeframe === tf) return;
         state.timeframe = tf;
+        // Watermark follows the timeframe
+        if (window.ChartEngine?.setWatermark && state.activePair) {
+            ChartEngine.setWatermark(state.activePair, tf);
+        }
         if (state.activePair) await selectPair(state.activePair, true);
         showToast(`Timeframe ${tf} loaded`, 1500);
     }
@@ -753,7 +760,18 @@ const App = (() => {
         const priceEl = document.getElementById('symbolPrice');
         const changeEl = document.getElementById('symbolChange');
 
-        if (price !== null) priceEl.textContent = formatPrice(price);
+        if (price !== null) {
+            // Flash the price up/down on tick — subtle, 400ms fade.
+            // Skip the very first render (no previous price to compare).
+            const prev = updateHeaderPrice._lastPrice;
+            if (prev !== undefined && prev !== null && prev !== price) {
+                priceEl.classList.remove('flash-up', 'flash-down');
+                void priceEl.offsetWidth;          // restart CSS animation
+                priceEl.classList.add(price > prev ? 'flash-up' : 'flash-down');
+            }
+            updateHeaderPrice._lastPrice = price;
+            priceEl.textContent = formatPrice(price);
+        }
         if (change !== null) {
             const cls = change > 0 ? 'up' : (change < 0 ? 'down' : 'flat');
             const sign = change > 0 ? '+' : '';

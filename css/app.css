@@ -1909,3 +1909,19 @@ body.sidebar-hidden .show-sidebar-btn {
 .cloud-badge.cloud-error {
     color: #e06c75;
 }
+
+/* ============ Price flash on tick ============ */
+@keyframes flashUp {
+    0%   { color: var(--up); text-shadow: 0 0 12px rgba(22,199,132,0.25); }
+    100% { color: var(--text-0); text-shadow: none; }
+}
+@keyframes flashDown {
+    0%   { color: var(--down); text-shadow: 0 0 12px rgba(234,57,67,0.25); }
+    100% { color: var(--text-0); text-shadow: none; }
+}
+.symbol-price.flash-up   { animation: flashUp 0.4s ease-out; }
+.symbol-price.flash-down { animation: flashDown 0.4s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+    .symbol-price.flash-up, .symbol-price.flash-down { animation: none; }
+}
