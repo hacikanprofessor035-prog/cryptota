@@ -263,6 +263,73 @@ const Strategies = {
         }
     },
 
+    /* ===================== 7. VWAP BOUNCE =====================
+     * Price crossing back above VWAP → BUY (institutional level held),
+     * Price falling below VWAP → SELL (benchmark lost).
+     * Session VWAP resets daily — we use the running version over the
+     * whole loaded window (500 candles), standard for 4h/daily analysis.
+     */
+    vwapBounce: {
+        name: 'VWAP Bounce', category: 'Trend',
+        desc: 'Cross of running VWAP — institutional price benchmark',
+        params: {
+            cooldown: { type: 'number', def: 3, min: 1, max: 20, label: 'Cooldown (candles)' }
+        },
+        run: (candles, p) => {
+            const v = vwap(candles);
+            const signals = [];
+            let lastSignalIdx = -Infinity;
+            for (let i = 1; i < candles.length; i++) {
+                if (v[i] == null || v[i - 1] == null) continue;
+                if (i - lastSignalIdx < p.cooldown) continue;
+                const c = candles[i], prev = candles[i - 1];
+                // Cross up: was below, closed above
+                if (prev.close < v[i - 1] && c.close > v[i]) {
+                    signals.push({ i, type: 'BUY', reason: 'Close crossed above VWAP' });
+                    lastSignalIdx = i;
+                }
+                // Cross down: was above, closed below
+                else if (prev.close > v[i - 1] && c.close < v[i]) {
+                    signals.push({ i, type: 'SELL', reason: 'Close fell below VWAP' });
+                    lastSignalIdx = i;
+                }
+            }
+            return Strategies._buildResult(candles, signals, 'VWAP Bounce');
+        }
+    },
+
+    /* ===================== 8. KELTNER BREAKOUT =====================
+     * Close above upper Keltner band → BUY (volatility expansion up),
+     * Close below lower band → SELL.
+     * KC = EMA ± ATR·mult — wider than BB, fewer but stronger breakouts.
+     */
+    keltnerBreakout: {
+        name: 'Keltner Breakout', category: 'Trend',
+        desc: 'Close beyond Keltner Channel band',
+        params: {
+            period: { type: 'number', def: 20, min: 5, max: 100, label: 'EMA period' },
+            mult:   { type: 'number', def: 2, min: 0.5, max: 5, step: 0.1, label: 'ATR multiplier' },
+            cooldown: { type: 'number', def: 3, min: 1, max: 20, label: 'Cooldown (candles)' }
+        },
+        run: (candles, p) => {
+            const k = keltner(candles, p.period, p.mult);
+            const signals = [];
+            let lastSignalIdx = -Infinity;
+            for (let i = 1; i < candles.length; i++) {
+                if (k.upper[i] == null || k.upper[i - 1] == null) continue;
+                if (i - lastSignalIdx < p.cooldown) continue;
+                if (candles[i].close > k.upper[i] && candles[i - 1].close <= k.upper[i - 1]) {
+                    signals.push({ i, type: 'BUY', reason: 'Close above KC upper' });
+                    lastSignalIdx = i;
+                } else if (candles[i].close < k.lower[i] && candles[i - 1].close >= k.lower[i - 1]) {
+                    signals.push({ i, type: 'SELL', reason: 'Close below KC lower' });
+                    lastSignalIdx = i;
+                }
+            }
+            return Strategies._buildResult(candles, signals, 'Keltner Breakout');
+        }
+    },
+
     /* ===================== Helper =====================
      * Build backtest metrics from a signal list.
      * Logic: BUY opens a position, next SELL closes it.
