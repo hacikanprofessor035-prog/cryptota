@@ -193,6 +193,14 @@ const App = (() => {
         const shareBtn = document.getElementById('shareButton');
         if (shareBtn) shareBtn.addEventListener('click', Share.copyLink);
 
+        // Technical summary panel
+        const sumBtn = document.getElementById('summaryButton');
+        if (sumBtn) sumBtn.addEventListener('click', toggleSummaryPanel);
+        const sumHide = document.getElementById('hideSummaryPanel');
+        if (sumHide) sumHide.addEventListener('click', () => toggleSummaryPanel(false));
+        const sumCopy = document.getElementById('summaryCopyBtn');
+        if (sumCopy) sumCopy.addEventListener('click', copySummary);
+
         // Drawing layer (trend lines) — inject coordinate API
         if (window.Drawing) {
             Drawing.setChartAPI(ChartEngine.getCoordAPI(), null, updateDrawUI);
@@ -253,6 +261,7 @@ const App = (() => {
             renderPairList();
             Watchlist.render();
             updateHeaderPrice();
+            if (isSummaryOpen()) renderSummaryPanel();
         });
         state.tickerStream.connect();
     }
@@ -294,6 +303,7 @@ const App = (() => {
             updateHeaderPrice();
             renderActiveIndicators();
             updateSymbolHeader();
+            if (isSummaryOpen()) renderSummaryPanel();
         } catch (e) {
             showToast(`Data load error: ${e.message}`);
         } finally {
@@ -318,6 +328,7 @@ const App = (() => {
                 recomputeStrategies();
                 pushToChart();
                 updateHeaderPrice();
+                if (isSummaryOpen()) renderSummaryPanel();
             },
             (candle) => { /* on candle close — recompute */ }
         );
@@ -791,6 +802,69 @@ const App = (() => {
         t.style.display = 'block';
         clearTimeout(t._timer);
         t._timer = setTimeout(() => { t.style.display = 'none'; }, ms);
+    }
+
+    /* ============== TECHNICAL SUMMARY ============== */
+
+    function summaryMeta() {
+        const pair = state.pairs.find(p => p.symbol === state.activePair);
+        return {
+            quote: pair?.quote || '',
+            timeframe: state.timeframe || '',
+        };
+    }
+
+    function renderSummaryPanel() {
+        const body = document.getElementById('summaryBody');
+        if (!body) return;
+        const t = state.tickers[state.activePair];
+        const sections = window.Summary.build(state.candles, t, summaryMeta());
+        body.innerHTML = sections.map(s => {
+            const badge = s.badge
+                ? `<span class="sum-badge ${s.badge.cls}">${s.badge.text}</span>`
+                : '';
+            const rows = s.rows.map(r =>
+                `<div class="sum-row">${r.label ? `<span class="sum-label">${r.label}</span>` : ''}<span class="sum-val">${r.text}</span></div>`
+            ).join('');
+            return `<div class="sum-section">
+                <div class="sum-section-head"><span class="sum-section-title">${s.title}</span>${badge}</div>
+                <div class="sum-rows">${rows}</div>
+            </div>`;
+        }).join('');
+    }
+
+    function isSummaryOpen() {
+        const panel = document.getElementById('summaryPanel');
+        return !!panel && panel.style.display !== 'none';
+    }
+
+    function toggleSummaryPanel(force) {
+        const panel = document.getElementById('summaryPanel');
+        if (!panel) return;
+        const open = force !== undefined ? force : !isSummaryOpen();
+        panel.style.display = open ? 'flex' : 'none';
+        if (open) {
+            renderSummaryPanel();
+            const btn = document.getElementById('summaryButton');
+            if (btn) btn.classList.toggle('active', true);
+        } else {
+            const btn = document.getElementById('summaryButton');
+            if (btn) btn.classList.toggle('active', false);
+        }
+    }
+
+    async function copySummary() {
+        const t = state.tickers[state.activePair];
+        const sections = window.Summary.build(state.candles, t, summaryMeta());
+        const pair = state.pairs.find(p => p.symbol === state.activePair);
+        const header = `CryptoTA — ${pair ? pair.base + '/' + pair.quote : state.activePair} · ${state.timeframe} · ${new Date().toLocaleDateString()}`;
+        const text = window.Summary.toText(sections, header);
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast('Summary copied to clipboard');
+        } catch (e) {
+            showToast('Copy failed — select text manually');
+        }
     }
 
     /* ============== STRATEGIES ============== */
