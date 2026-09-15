@@ -1426,6 +1426,13 @@ const ChartEngine = (() => {
         return `rgba(${r},${g},${b},${a})`;
     }
 
+    /* Swap the color palette (light/dark theme). Repaints immediately. */
+    function setColors(p) {
+        if (!p) return;
+        Object.assign(COLORS, p);
+        render();
+    }
+
     return {
         init,
         setData,
@@ -1434,6 +1441,7 @@ const ChartEngine = (() => {
         setIndicators,
         setWatermark,
         resetView,
+        setColors,
         getState: () => state,
         /* Drawing layer API (data↔pixel transforms + candles) */
         getCoordAPI: () => ({

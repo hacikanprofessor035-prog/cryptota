@@ -563,6 +563,9 @@ const App = (() => {
         if (window.AlertsUI) AlertsUI.init();
         if (window.MTF) MTF.init();
         if (window.Risk) Risk.init();
+        if (window.Theme) Theme.init();
+        if (window.Hotkeys) Hotkeys.init();
+        buildThemeButton();
 
     }
 
@@ -1327,6 +1330,28 @@ const App = (() => {
             setTimeout(() => URL.revokeObjectURL(url), 3000);
             showToast('Chart saved as PNG');
         }, 'image/png');
+    }
+
+    /* Theme toggle button (☀/☾) + shortcuts hint (?) in the topbar */
+    function buildThemeButton() {
+        if (document.getElementById('themeButton')) return;
+        const btn = document.createElement('button');
+        btn.id = 'themeButton';
+        btn.className = 'ct-icon-btn';
+        btn.title = 'Light / dark theme (T)';
+        const render = () => { btn.innerHTML = Theme.get() === 'light' ? '☀' : '☾'; };
+        render();
+        btn.addEventListener('click', () => { Theme.toggle(); render(); });
+        const anchor = document.getElementById('riskButton') || document.getElementById('mtfButton');
+        if (anchor) anchor.parentNode.insertBefore(btn, anchor);
+
+        const hint = document.createElement('button');
+        hint.id = 'hotkeyHint';
+        hint.className = 'ct-icon-btn';
+        hint.title = 'Keyboard shortcuts (?)';
+        hint.textContent = '?';
+        hint.addEventListener('click', () => Hotkeys.toggleSheet());
+        anchor.parentNode.insertBefore(hint, btn);
     }
 
     function setDrawCursor(tool) {

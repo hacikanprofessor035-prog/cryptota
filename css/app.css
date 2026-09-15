@@ -2282,3 +2282,59 @@ body.sidebar-hidden .show-sidebar-btn {
 @media (max-width: 640px) {
     .risk-panel { width: min(94vw, 320px); max-height: 60vh; }
 }
+
+/* ===== Hotkey cheat sheet ===== */
+.hotkey-sheet {
+    position: fixed; top: 56px; right: 12px; z-index: 70;
+    width: 300px;
+    background: rgba(17, 21, 31, 0.98);
+    border: 1px solid rgba(92, 200, 192, 0.22);
+    border-radius: 12px; padding: 12px 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px); font-size: 12px;
+}
+.hk-title { font-weight: 700; color: #e8ecf4; margin-bottom: 8px; }
+.hk-hint { font-size: 10px; color: #6b7280; font-weight: 400; margin-left: 6px; }
+.hk-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 2px; border-bottom: 1px solid rgba(232, 236, 244, 0.06);
+}
+.hk-row:last-child { border-bottom: none; }
+.hk-row kbd {
+    min-width: 62px; text-align: center;
+    background: rgba(232, 236, 244, 0.07);
+    border: 1px solid rgba(232, 236, 244, 0.14);
+    border-radius: 5px; padding: 2px 6px;
+    font-family: var(--mono, monospace); font-size: 11px; color: #5cc8c0;
+}
+.hk-row span { color: #9aa3b2; }
+.hk-foot { margin-top: 8px; font-size: 10px; color: #6b7280; text-align: center; }
+
+/* ===== Light theme overrides ===== */
+/* Panels that hardcode rgba() backgrounds need explicit light values. */
+html.theme-light .hotkey-sheet,
+html.theme-light .mtf-panel,
+html.theme-light .risk-panel,
+html.theme-light .summary-panel,
+html.theme-light .book-panel,
+html.theme-light .compare-popover {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(20, 26, 38, 0.14);
+    box-shadow: 0 12px 40px rgba(20, 26, 38, 0.18);
+}
+html.theme-light .hotkey-sheet .hk-title,
+html.theme-light .mtf-panel .mtf-title,
+html.theme-light .risk-panel .risk-title,
+html.theme-light .summary-panel .sum-title,
+html.theme-light .book-panel .book-title { color: #141a26; }
+html.theme-light .hotkey-sheet .hk-row span,
+html.theme-light .mtf-panel .mtf-mid,
+html.theme-light .risk-panel .risk-hint,
+html.theme-light .summary-panel .sum-note,
+html.theme-light .book-panel .book-note { color: #5a6472; }
+html.theme-light .hotkey-sheet .hk-row kbd {
+    background: rgba(20, 26, 38, 0.05);
+    border-color: rgba(20, 26, 38, 0.15);
+    color: #0e7873;
+}
+html.theme-light .heatmap-modal { background: rgba(255,255,255,0.98); }
