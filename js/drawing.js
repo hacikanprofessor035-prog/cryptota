@@ -339,7 +339,8 @@ const Drawing = (() => {
         const active = hoverLineId === line.id || dragLineId === line.id;
 
         // full-width solid line, slightly subtler than segments
-        ctx.strokeStyle = rgba(HLINE_COLOR, active ? 0.95 : 0.55);
+        const base = line.color || HLINE_COLOR;
+        ctx.strokeStyle = rgba(base, active ? 0.95 : 0.55);
         ctx.lineWidth = active ? 1.4 : 1;
         ctx.setLineDash(active ? [] : [6, 4]);
         ctx.beginPath();
@@ -349,7 +350,7 @@ const Drawing = (() => {
         ctx.setLineDash([]);
 
         // price pill on the right axis (like the last-price label)
-        const text = api.formatPrice(line.price);
+        const text = line.label || api.formatPrice(line.price);
         ctx.font = '10px JetBrains Mono, monospace';
         ctx.textBaseline = 'middle';
         const textW = ctx.measureText(text).width;
@@ -819,13 +820,34 @@ const Drawing = (() => {
         return `rgba(${r},${g},${b},${a})`;
     }
 
+    /* Remove all programmatic (non-interactive) objects, e.g. risk levels. */
+    function clearProgrammatic() {
+        const had = lines.some(l => l.prog);
+        lines = lines.filter(l => !l.prog);
+        if (had) save();
+    }
+
     return {
         setChartAPI, setSymbol, setTool, clearAll,
         render, onMouseDown, onMouseMove, onMouseUp, onMouseLeave,
         getTool, getLineCount, getObjects, setObjects,
         cloudPull, cloudPush,
-        onKeyDown
+        onKeyDown, addProgrammatic, clearProgrammatic
     };
+
+    /* Add non-interactive objects programmatically (e.g. risk levels).
+     * objs: [{type:'hline', price, color, label}, ...] — ids assigned here. */
+    function addProgrammatic(symbol, objs) {
+        const added = objs.map(o => ({
+            id: 'P' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+            prog: true,                     // not draggable/hoverable
+            ...o
+        }));
+        lines = lines.concat(added);
+        save();
+        // Ask the chart to repaint (it supplies ctx + range); safe before bind
+        if (api && window.ChartEngine && ChartEngine.render) ChartEngine.render();
+    }
 
     /* Delete hovered line — hook from UI (Delete/Backspace) */
     function onKeyDown(e) {

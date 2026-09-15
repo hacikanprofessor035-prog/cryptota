@@ -562,6 +562,7 @@ const App = (() => {
         // Price alerts (bell button + panel) — needs Session, registers SW
         if (window.AlertsUI) AlertsUI.init();
         if (window.MTF) MTF.init();
+        if (window.Risk) Risk.init();
 
     }
 
