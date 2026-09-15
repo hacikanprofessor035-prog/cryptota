@@ -201,6 +201,16 @@ const App = (() => {
         const sumCopy = document.getElementById('summaryCopyBtn');
         if (sumCopy) sumCopy.addEventListener('click', copySummary);
 
+        // Market heatmap
+        if (window.Heatmap) {
+            window.Heatmap.onSelect(selectPair);
+            const hmBtn = document.getElementById('heatmapButton');
+            if (hmBtn) hmBtn.addEventListener('click', () => {
+                window.Heatmap.render(state.pairs, state.tickers, state.activePair);
+                window.Heatmap.toggle();
+            });
+        }
+
         // Drawing layer (trend lines) — inject coordinate API
         if (window.Drawing) {
             Drawing.setChartAPI(ChartEngine.getCoordAPI(), null, updateDrawUI);
@@ -262,6 +272,9 @@ const App = (() => {
             Watchlist.render();
             updateHeaderPrice();
             if (isSummaryOpen()) renderSummaryPanel();
+            if (window.Heatmap && Heatmap.isOpen()) {
+                Heatmap.render(state.pairs, state.tickers, state.activePair, { quote: Heatmap.getQuote() });
+            }
         });
         state.tickerStream.connect();
     }
