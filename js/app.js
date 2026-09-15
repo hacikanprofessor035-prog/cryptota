@@ -1255,7 +1255,9 @@ const App = (() => {
                         ? 'Zone mode: click & drag to mark a range'
                         : tool === 'fib'
                             ? 'Fib fan: drag along a trend to fan out the levels'
-                            : 'Normal mode: drag to pan', 2000);
+                            : tool === 'text'
+                                ? 'Note mode: click a point on the chart to label it'
+                                : 'Normal mode: drag to pan', 2000);
         });
 
         // Keyboard: Delete hovered line, Escape cancels drawing

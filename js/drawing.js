@@ -6,6 +6,7 @@
  *  - horizontal: {id, type: 'hline', price}
  *  - rect zone:  {id, type: 'rect', time1, price1, time2, price2}
  *  - fib fan:    {id, type: 'fib', time1, price1, time2, price2}
+ *  - text note:  {id, type: 'text', time, price, text}
  *
  * Integration:
  *  - Drawing.setChartAPI({xForIndex, indexForX, yForPrice, getCandles,
@@ -21,6 +22,9 @@ const Drawing = (() => {
     const HLINE_COLOR = '#7a8a9e';       // muted slate — distinct from segments
     const RECT_COLOR = '#c9a857';        // amber border, faint amber fill
     const FIB_COLOR = '#9b8ec9';         // violet — from indicator palette
+    const TEXT_COLOR = '#e8ecf4';        // near-white text
+    const TEXT_BG = 'rgba(17, 21, 31, 0.88)';
+    const TEXT_BORDER = 'rgba(92, 200, 192, 0.45)';
     const FIB_LEVELS = [0.382, 0.5, 0.618, 0.786];
     const LINE_WIDTH = 1.2;
     const LINE_ALPHA = 0.85;
@@ -243,6 +247,8 @@ const Drawing = (() => {
                 renderRect(ctx, line, range);
             } else if (line.type === 'fib') {
                 renderFib(ctx, line, range);
+            } else if (line.type === 'text') {
+                renderText(ctx, line, range);
             } else {
                 renderSegment(ctx, line, range);
             }
@@ -465,6 +471,123 @@ const Drawing = (() => {
         ctx.stroke();
     }
 
+    /* ===== Text prompt modal (replaces window.prompt) ===== */
+    let promptEl = null;
+    function promptText(cb) {
+        if (promptEl) { promptEl.remove(); promptEl = null; }
+        promptEl = document.createElement('div');
+        promptEl.className = 'modal-overlay';
+        promptEl.style.zIndex = 1200;
+        promptEl.innerHTML = `
+            <div class="modal" style="width:min(420px,92vw)">
+                <div class="modal-head"><h2>Chart note</h2>
+                    <button class="icon-btn" data-x>✕</button></div>
+                <div class="modal-search">
+                    <textarea id="noteText" rows="3" placeholder="Breakout level, support, entry zone…"
+                        style="width:100%;background:var(--bg-2);border:1px solid var(--line);border-radius:6px;color:var(--text-0);padding:8px;font-family:var(--mono);font-size:12px;resize:vertical"></textarea>
+                </div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;padding:0 18px 14px">
+                    <button class="auth-btn" data-cancel style="padding:6px 14px">Cancel</button>
+                    <button class="auth-btn-primary" data-ok style="padding:6px 14px">Place note</button>
+                </div>
+            </div>`;
+        document.body.appendChild(promptEl);
+        const ta = promptEl.querySelector('#noteText');
+        ta.focus();
+        const done = (val) => {
+            promptEl.remove();
+            promptEl = null;
+            cb(val);
+        };
+        promptEl.querySelector('[data-x]').addEventListener('click', () => done(null));
+        promptEl.querySelector('[data-cancel]').addEventListener('click', () => done(null));
+        promptEl.querySelector('[data-ok]').addEventListener('click', () => done(ta.value.trim() || null));
+        ta.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); done(ta.value.trim() || null); }
+            if (e.key === 'Escape') done(null);
+        });
+        promptEl.addEventListener('click', (e) => { if (e.target === promptEl) done(null); });
+    }
+
+    /* ===== Text notes ===== */
+    // Cached label metrics so hit-testing and rendering stay in sync
+    function textMetrics(ctx, note) {
+        ctx.font = '11px ' + (window.getComputedStyle(document.body).fontFamily || 'monospace');
+        const lines = String(note.text || '').split('\n');
+        let maxW = 0;
+        for (const ln of lines) maxW = Math.max(maxW, ctx.measureText(ln).width);
+        return { w: Math.ceil(maxW) + 12, h: lines.length * 14 + 9, lines };
+    }
+
+    function textAnchor(note, range) {
+        if (!api || note.time == null || note.price == null) return null;
+        const idx = timeToIndex(note.time);
+        if (idx == null) return null;
+        return { x: api.xForIndex(idx), y: api.yForPrice(note.price, range) };
+    }
+
+    function renderText(ctx, note, range) {
+        const a = textAnchor(note, range);
+        if (!a) return;
+        const m = textMetrics(ctx, note);
+        // clamp horizontally so the label stays on-chart
+        const edges = api.chartEdges();
+        const x = Math.min(Math.max(a.x, edges.left + 2), edges.right - m.w - 2);
+        const y = a.y - m.h - 4;   // label sits above the anchor point
+
+        ctx.save();
+        // anchor dot
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(92, 200, 192, 0.9)';
+        ctx.fill();
+
+        // background pill
+        ctx.fillStyle = TEXT_BG;
+        ctx.strokeStyle = hoverLineId === note.id ? 'rgba(92, 200, 192, 0.9)' : TEXT_BORDER;
+        ctx.lineWidth = 1;
+        roundRect(ctx, x, y, m.w, m.h, 5);
+        ctx.fill();
+        ctx.stroke();
+
+        // text
+        ctx.fillStyle = TEXT_COLOR;
+        ctx.font = '11px ' + (window.getComputedStyle(document.body).fontFamily || 'monospace');
+        ctx.textBaseline = 'top';
+        m.lines.forEach((ln, i) => ctx.fillText(ln, x + 6, y + 5 + i * 14));
+        ctx.restore();
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+    }
+
+    function textBox(note, range, ctx) {
+        const a = textAnchor(note, range);
+        if (!a) return null;
+        const m = textMetrics(ctx || drawingCtx(), note);
+        const edges = api.chartEdges();
+        const x = Math.min(Math.max(a.x, edges.left + 2), edges.right - m.w - 2);
+        const y = a.y - m.h - 4;
+        return { x, y, w: m.w, h: m.h };
+    }
+
+    // a dummy 2d context purely for measuring text when none is passed
+    let _measureCtx = null;
+    function drawingCtx() {
+        if (!_measureCtx) {
+            const c = document.createElement('canvas');
+            _measureCtx = c.getContext('2d');
+        }
+        return _measureCtx;
+    }
+
     /* ===== Mouse handling (called by ChartEngine first) ===== */
     function onMouseDown(pos, range) {
         if (tool === 'off' || !api) return false;
@@ -496,6 +619,27 @@ const Drawing = (() => {
 
         // Start a new object
         drawing = true;
+        if (tool === 'text') {
+            // Text note: prompt for content, anchored at the click point
+            const t = timeAt(pos.x);
+            const p = priceAt(pos.y, range);
+            promptText((text) => {
+                if (text) {
+                    lines.push({
+                        id: 'T' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                        type: 'text',
+                        time: t,
+                        price: p,
+                        text
+                    });
+                    save();
+                }
+                // stay in text mode for rapid annotation
+                if (window.ChartEngine && ChartEngine.render) ChartEngine.render();
+            });
+            drawing = false;
+            return true;
+        }
         if (tool === 'hline') {
             currentLine = {
                 type: 'hline',
@@ -531,6 +675,9 @@ const Drawing = (() => {
             if (line) {
                 if (line.type === 'hline') {
                     line.price = priceAt(pos.y, range) + dragOffset.dPrice1;
+                } else if (line.type === 'text') {
+                    line.time = timeAt(pos.x);
+                    line.price = priceAt(pos.y, range);
                 } else if (dragOffset.handle === 0) {
                     line.time1 = timeAt(pos.x) + dragOffset.dTime1;
                     line.price1 = priceAt(pos.y, range) + dragOffset.dPrice1;
@@ -597,6 +744,15 @@ const Drawing = (() => {
     function hitTest(pos, range) {
         for (let i = lines.length - 1; i >= 0; i--) {
             const line = lines[i];
+            if (line.type === 'text') {
+                const box = textBox(line, range);
+                if (box &&
+                    pos.x >= box.x - 4 && pos.x <= box.x + box.w + 4 &&
+                    pos.y >= box.y - 4 && pos.y <= box.y + box.h + 4) {
+                    return { id: line.id, handle: 0, obj: line };
+                }
+                continue;
+            }
             if (line.type === 'hline') {
                 if (line.price < range.min || line.price > range.max) continue;
                 const y = api.yForPrice(line.price, range);
