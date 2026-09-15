@@ -117,3 +117,18 @@ body {
     .lp-vol { text-align: left; }
     .lp-canvas { height: 180px; }
 }
+
+/* ---------- article (guides) ---------- */
+.lp-article { padding: 48px 0 24px; max-width: 720px; }
+.lp-article h1 { font-size: clamp(24px, 4vw, 36px); line-height: 1.2; letter-spacing: -0.02em; }
+.lp-article h2 {
+    font-size: 21px; margin: 34px 0 12px; letter-spacing: -0.01em;
+}
+.lp-article p { color: var(--text1); margin-bottom: 14px; font-size: 15.5px; }
+.lp-article ul { margin: 0 0 18px 22px; color: var(--text1); }
+.lp-article li { margin-bottom: 8px; }
+.lp-article strong { color: var(--text0); }
+.lp-article code { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+.lp-more { margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--text2); font-size: 13px; }
+.lp-more a { color: var(--accent); margin-left: 8px; text-decoration: none; font-weight: 600; }
+.lp-more a:hover { text-decoration: underline; }
