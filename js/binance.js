@@ -188,13 +188,54 @@ const BinanceAPI = (() => {
         }
     }
 
+    // --- WebSocket: partial book depth (top 20 levels, 100ms updates) ---
+    class DepthStream {
+        // symbol: 'BTCUSDT'; onUpdate(snapshot) with snapshot = {bids:[[p,q],...], asks:[[p,q],...]}
+        constructor(symbol, onUpdate) {
+            this.symbol = String(symbol || '').toLowerCase();
+            this.onUpdate = onUpdate;
+            this.ws = null;
+            this.reconnectDelay = 1000;
+            this.shouldRun = false;
+        }
+        connect() {
+            this.shouldRun = true;
+            this._open();
+        }
+        _open() {
+            if (!this.symbol) return;
+            this.ws = new WebSocket(`${WS_BASE}/${this.symbol}@depth20@100ms`);
+            this.ws.onopen = () => { this.reconnectDelay = 1000; };
+            this.ws.onmessage = (e) => {
+                try {
+                    const d = JSON.parse(e.data);
+                    const bids = (d.bids || d.b || []).map(([p, q]) => [parseFloat(p), parseFloat(q)]);
+                    const asks = (d.asks || d.a || []).map(([p, q]) => [parseFloat(p), parseFloat(q)]);
+                    if (this.onUpdate) this.onUpdate({ bids, asks });
+                } catch (err) { /* ignore parse */ }
+            };
+            this.ws.onclose = () => {
+                if (this.shouldRun) {
+                    setTimeout(() => this._open(), this.reconnectDelay);
+                    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
+                }
+            };
+            this.ws.onerror = () => { /* let onclose handle */ };
+        }
+        close() {
+            this.shouldRun = false;
+            if (this.ws) { this.ws.close(); this.ws = null; }
+        }
+    }
+
     return {
         INTERVALS,
         getExchangeInfo,
         get24hTickers,
         getKlines,
         KlineStream,
-        TickerStream
+        TickerStream,
+        DepthStream
     };
 })();
 

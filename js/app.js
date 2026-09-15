@@ -211,6 +211,14 @@ const App = (() => {
             });
         }
 
+        // Order book
+        if (window.Book) {
+            const bkBtn = document.getElementById('bookButton');
+            if (bkBtn) bkBtn.addEventListener('click', () => {
+                window.Book.toggle(state.activePair, summaryMeta());
+            });
+        }
+
         // Drawing layer (trend lines) — inject coordinate API
         if (window.Drawing) {
             Drawing.setChartAPI(ChartEngine.getCoordAPI(), null, updateDrawUI);
@@ -317,6 +325,7 @@ const App = (() => {
             renderActiveIndicators();
             updateSymbolHeader();
             if (isSummaryOpen()) renderSummaryPanel();
+            if (window.Book && Book.isOpen()) Book.setSymbol(symbol, summaryMeta());
         } catch (e) {
             showToast(`Data load error: ${e.message}`);
         } finally {

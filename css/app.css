@@ -1665,6 +1665,64 @@ body.sidebar-hidden .show-sidebar-btn {
 /* ===== Technical summary panel ===== */
 .summary-panel { width: 320px; }
 
+/* ===== Order book panel ===== */
+.book-panel { width: 340px; }
+.book-body { padding: 6px; }
+
+.book-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.book-col { display: flex; flex-direction: column; gap: 1px; }
+.book-asks { }
+
+.book-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px;
+    padding: 1px 5px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.5;
+    overflow: hidden;
+}
+.book-bar {
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    z-index: 0;
+    pointer-events: none;
+}
+.book-asks .book-bar { background: rgba(234, 57, 67, 0.14); }
+.book-bids .book-bar { background: rgba(22, 199, 132, 0.14); }
+.book-price { position: relative; z-index: 1; }
+.book-size  { position: relative; z-index: 1; color: var(--text-2); }
+.book-price.up   { color: var(--up); }
+.book-price.down { color: var(--down); }
+
+.book-spread {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding: 4px 6px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-1);
+    flex-wrap: wrap;
+}
+.book-spread-l { color: var(--text-2); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
+.book-spread-v { color: var(--text-0); }
+.book-spread-pct { color: var(--text-2); }
+
+@media (max-width: 640px) {
+    .book-panel { width: min(94vw, 340px); max-height: 44vh; }
+    .book-row { font-size: 9.5px; }
+}
+
 .sum-section { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
 .sum-section + .sum-section { margin-top: 6px; }
 
