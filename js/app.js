@@ -326,6 +326,7 @@ const App = (() => {
             updateSymbolHeader();
             if (isSummaryOpen()) renderSummaryPanel();
             if (window.Book && Book.isOpen()) Book.setSymbol(symbol, summaryMeta());
+            if (window.MTF && MTF.isOpen()) MTF.onPairChanged(symbol);
         } catch (e) {
             showToast(`Data load error: ${e.message}`);
         } finally {
@@ -560,6 +561,7 @@ const App = (() => {
 
         // Price alerts (bell button + panel) — needs Session, registers SW
         if (window.AlertsUI) AlertsUI.init();
+        if (window.MTF) MTF.init();
 
     }
 
