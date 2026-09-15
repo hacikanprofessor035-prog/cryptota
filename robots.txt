@@ -1,5 +1,5 @@
 User-agent: *
 Allow: /
 
-# SPA — only real entry points
+# SPA — landing pages are real static HTML, app is hash-routed
 Sitemap: https://cryptota.duckdns.org/sitemap.xml
