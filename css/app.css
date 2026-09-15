@@ -2376,3 +2376,10 @@ html.theme-light .tf-btn { color: #5a6472; }
 html.theme-light .tf-btn.active { color: #0e7873; }
 html.theme-light .ct-icon-btn { color: #4a5568; }
 html.theme-light .ct-icon-btn:hover { background: rgba(20, 26, 38, 0.07); }
+
+/* Light theme: dim the page behind modals with a light scrim. */
+html.theme-light .modal-overlay { background: rgba(247, 249, 252, 0.72); }
+html.theme-light .modal { background: #ffffff; border-color: rgba(20, 26, 38, 0.14); }
+html.theme-light .modal-head h2,
+html.theme-light .modal-head h3 { color: #141a26; }
+html.theme-light .hm-sub-text { color: #5a6472; }
