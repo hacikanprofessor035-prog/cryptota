@@ -560,9 +560,13 @@ const App = (() => {
         window.appShowToast = showToast;
 
         // Price alerts (bell button + panel) — needs Session, registers SW
+        window.__step = 'alerts';
         if (window.AlertsUI) AlertsUI.init();
+        window.__step = 'mtf';
         if (window.MTF) MTF.init();
+        window.__step = 'risk';
         if (window.Risk) Risk.init();
+        window.__initDone = true;
 
     }
 
