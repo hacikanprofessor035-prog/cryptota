@@ -466,6 +466,16 @@ body.sidebar-hidden .show-sidebar-btn {
     border-radius: 4px;
 }
 
+.symbol-volume {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-2);
+    background: var(--bg-2);
+    padding: 2px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
 .symbol-change.up { color: var(--up); background: var(--up-soft); }
 .symbol-change.down { color: var(--down); background: var(--down-soft); }
 .symbol-change.flat { color: var(--text-1); }
@@ -1447,6 +1457,7 @@ body.sidebar-hidden .show-sidebar-btn {
     }
     .draw-tools { flex-wrap: wrap; }
     .symbol-change { display: none; }
+    .symbol-volume { display: none; }
     /* chart takes the full width; paddings shrink */
     .chart-wrapper { padding: 0 2px; }
     .active-indicators { padding: 4px 8px; flex-wrap: wrap; }

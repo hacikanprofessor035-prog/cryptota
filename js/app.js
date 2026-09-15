@@ -759,6 +759,7 @@ const App = (() => {
 
         const priceEl = document.getElementById('symbolPrice');
         const changeEl = document.getElementById('symbolChange');
+        const volumeEl = document.getElementById('symbolVolume');
 
         if (price !== null) {
             // Flash the price up/down on tick — subtle, 400ms fade.
@@ -777,6 +778,10 @@ const App = (() => {
             const sign = change > 0 ? '+' : '';
             changeEl.textContent = `${sign}${change.toFixed(2)}%`;
             changeEl.className = `symbol-change ${cls}`;
+        }
+        if (volumeEl) {
+            const vol = t?.quoteVolume ?? null;
+            volumeEl.textContent = vol !== null ? formatVolume(vol) : '—';
         }
     }
 
