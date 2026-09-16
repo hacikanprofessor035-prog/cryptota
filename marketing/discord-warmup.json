@@ -1,0 +1,14 @@
+{
+  "account": "professor_hachikyan",
+  "platform": "discord",
+  "guild": "Binance",
+  "guild_id": "882554401154289665",
+  "target_channel": "traders-chat",
+  "target_channel_id": "1362093483929632918",
+  "status": "warming",
+  "phase": 1,
+  "rule": "No Advertising (no links, no non-Binance projects); No Spamming; No ALL CAPS; Respectful",
+  "messages_done": 0,
+  "target_messages": 30,
+  "actions": []
+}
