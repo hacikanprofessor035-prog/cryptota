@@ -4,12 +4,14 @@
   "status": "warming",
   "phase": 1,
   "rule": "r/CryptoCurrency rule 9: >=3 comments per post; Reddit 10:1 non-promo:promo",
-  "comments_done": 3,
+  "comments_done": 5,
   "target_comments": 30,
   "comments": [
     {"sub": "CryptoCurrency", "url": "https://old.reddit.com/r/CryptoCurrency/comments/1wfz9ek/who_do_you_think_is_the_winning_strategy_buy_and/pa0m4z4/", "ts": "2026-09-15T19:11:58Z"},
     {"sub": "CryptoCurrency", "url": "https://old.reddit.com/r/CryptoCurrency/comments/1wgk0ht/one_last_leg_down_before_the_next_bull_run/pa0mb6c/", "ts": "2026-09-15T19:12:41Z"},
-    {"sub": "CryptoCurrency", "url": "https://old.reddit.com/r/CryptoCurrency/comments/1wg5e0d/crypto_card_with_good_cashback_in_stablecoin/pa0s2gj/", "ts": "2026-09-15T19:37:04Z"}
+    {"sub": "CryptoCurrency", "url": "https://old.reddit.com/r/CryptoCurrency/comments/1wg5e0d/crypto_card_with_good_cashback_in_stablecoin/pa0s2gj/", "ts": "2026-09-15T19:37:04Z"},
+    {"sub": "CryptoCurrency", "url": "https://old.reddit.com/r/CryptoCurrency/comments/1wgpnl2/coinex_exchange_closing_down/pa2y8rb/", "ts": "2026-09-16T01:58:44Z"},
+    {"sub": "CryptoCurrency", "url": "https://old.reddit.com/r/CryptoCurrency/comments/1whexew/crypto_feels_like_a_casino_and_im_tired_of/pa4e3cu/", "ts": "2026-09-16T08:01:00Z"}
   ],
-  "checked_at": "2026-09-15T19:55:22Z"
+  "checked_at": "2026-09-16T08:01:00Z"
 }

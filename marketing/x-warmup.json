@@ -1,0 +1,13 @@
+{
+  "account": "@Hacikan39622P",
+  "platform": "x",
+  "status": "warming",
+  "phase": 1,
+  "rule": "10-15 actions/day max; mix of likes + replies + follows; no links to CryptoTA in phase 1",
+  "actions_done": 0,
+  "target_actions": 150,
+  "likes": 0,
+  "replies": 0,
+  "follows": 0,
+  "actions": []
+}
