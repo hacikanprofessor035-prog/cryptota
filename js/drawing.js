@@ -5,6 +5,7 @@
  *  - trend line: {id, time1, price1, time2, price2}          (no type field)
  *  - horizontal: {id, type: 'hline', price}
  *  - rect zone:  {id, type: 'rect', time1, price1, time2, price2}
+ *  - price range:{id, type: 'range', price1, price2, time}
  *  - fib fan:    {id, type: 'fib', time1, price1, time2, price2}
  *  - text note:  {id, type: 'text', time, price, text}
  *
@@ -21,6 +22,7 @@ const Drawing = (() => {
     const LINE_COLOR = '#c9a857';        // amber — matches indicator palette
     const HLINE_COLOR = '#7a8a9e';       // muted slate — distinct from segments
     const RECT_COLOR = '#c9a857';        // amber border, faint amber fill
+    const RANGE_COLOR = '#5cc8c0';       // teal — the CryptoTA accent
     const FIB_COLOR = '#9b8ec9';         // violet — from indicator palette
     const TEXT_COLOR = '#e8ecf4';        // near-white text
     const TEXT_BG = 'rgba(17, 21, 31, 0.88)';
@@ -32,7 +34,7 @@ const Drawing = (() => {
 
     let api = null;              // {xForIndex, indexForX, yForPrice, getCandles, priceArea, chartEdges, formatPrice}
     let lines = [];              // mixed: segments + hlines
-    let tool = 'off';            // 'off' | 'line' | 'hline'
+    let tool = 'off';            // 'off' | 'line' | 'hline' | 'rect' | 'fib' | 'text' | 'range'
     let drawing = false;
     let currentLine = null;      // line being drawn
     let hoverLineId = null;      // line under cursor
@@ -188,7 +190,8 @@ const Drawing = (() => {
         // re-id to avoid collisions
         lines = objs.map(o => {
             const copy = { ...o };
-            const prefix = copy.type === 'hline' ? 'H' : copy.type === 'rect' ? 'R' : copy.type === 'fib' ? 'F' : 'L';
+            const prefix = copy.type === 'hline' ? 'H' : copy.type === 'rect' ? 'R'
+                : copy.type === 'fib' ? 'F' : copy.type === 'range' ? 'G' : 'L';
             copy.id = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
             return copy;
         });
@@ -247,6 +250,8 @@ const Drawing = (() => {
                 renderRect(ctx, line, range);
             } else if (line.type === 'fib') {
                 renderFib(ctx, line, range);
+            } else if (line.type === 'range') {
+                renderRange(ctx, line, range);
             } else if (line.type === 'text') {
                 renderText(ctx, line, range);
             } else {
@@ -288,6 +293,15 @@ const Drawing = (() => {
                 // fib fan preview: base + rays from anchor to cursor
                 const preview = { time1: currentLine.time1, price1: currentLine.price1, time2: timeAt(cursorPos.x), price2: priceAt(cursorPos.y, range) };
                 drawFibFan(ctx, preview, range, true);
+            } else if (currentLine.type === 'range') {
+                // price range: drag vertically between two prices; preview as
+                // a faint band + dashed boundary lines
+                const preview = {
+                    type: 'range',
+                    price1: currentLine.price1,
+                    price2: priceAt(cursorPos.y, range)
+                };
+                drawRangeBand(ctx, preview, range, true);
             } else {
                 const a = endPoint(currentLine, 1, range);
                 const preview = {
@@ -395,6 +409,74 @@ const Drawing = (() => {
             drawHandle(ctx, b.x, b.y);
             drawHandle(ctx, a.x, b.y);
             drawHandle(ctx, b.x, a.y);
+        }
+    }
+
+    /* Price Range: horizontal band between two prices, spanning the visible
+     * chart. Labels both bounds on the price axis and shows the % width of
+     * the range — the classic "look how far price moved / where is the
+     * dealing zone" measurement. */
+    function drawRangeBand(ctx, line, range, preview) {
+        const edges = api.chartEdges();
+        const lo = Math.min(line.price1, line.price2);
+        const hi = Math.max(line.price1, line.price2);
+        if (hi < range.min || lo > range.max) return;      // fully off-screen
+        const yLo = api.yForPrice(lo, range);
+        const yHi = api.yForPrice(hi, range);
+        const active = !preview && (hoverLineId === line.id || dragLineId === line.id);
+
+        // faint band
+        ctx.fillStyle = rgba(RANGE_COLOR, active ? 0.12 : (preview ? 0.05 : 0.07));
+        ctx.fillRect(edges.left, yHi, edges.right - edges.left, yLo - yHi);
+
+        // dashed boundary lines
+        ctx.strokeStyle = rgba(RANGE_COLOR, preview ? 0.5 : (active ? 0.95 : 0.65));
+        ctx.lineWidth = active ? 1.3 : 1;
+        ctx.setLineDash(active ? [] : [6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(edges.left, yHi); ctx.lineTo(edges.right, yHi);
+        ctx.moveTo(edges.left, yLo); ctx.lineTo(edges.right, yLo);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (preview) return;
+
+        // price pills on the right axis (same style as the hline label)
+        ctx.font = '10px JetBrains Mono, monospace';
+        ctx.textBaseline = 'middle';
+        const pill = (y, text, pctText) => {
+            const textW = ctx.measureText(text).width;
+            const boxX = edges.right + 1;
+            const boxW = textW + 10;
+            ctx.fillStyle = rgba(RANGE_COLOR, active ? 0.95 : 0.8);
+            ctx.fillRect(boxX, y - 7, boxW, 14);
+            ctx.fillStyle = '#0a0e1a';
+            ctx.textAlign = 'left';
+            ctx.fillText(text, boxX + 5, y + 0.5);
+            if (pctText) {
+                // % width pill below the lower bound
+                const pw = ctx.measureText(pctText).width;
+                ctx.fillStyle = rgba(RANGE_COLOR, active ? 0.3 : 0.22);
+                ctx.fillRect(boxX, y + 9, pw + 10, 14);
+                ctx.fillStyle = '#0a0e1a';
+                ctx.fillText(pctText, boxX + 5, y + 16.5);
+            }
+        };
+        const pct = lo > 0 ? ((hi - lo) / lo * 100) : 0;
+        const pctText = pct.toFixed(1) + '%';
+        pill(yHi, api.formatPrice(hi));
+        pill(yLo, api.formatPrice(lo), pctText);
+        ctx.textBaseline = 'alphabetic';
+    }
+
+    function renderRange(ctx, line, range) {
+        drawRangeBand(ctx, line, range, false);
+        const active = hoverLineId === line.id || dragLineId === line.id;
+        if (active) {
+            const edges = api.chartEdges();
+            // drag handle on each boundary (mid-chart, SUBTLE)
+            drawHandle(ctx, edges.left + 14, api.yForPrice(Math.max(line.price1, line.price2), range));
+            drawHandle(ctx, edges.left + 14, api.yForPrice(Math.min(line.price1, line.price2), range));
         }
     }
 
@@ -605,6 +687,13 @@ const Drawing = (() => {
                 };
             } else if (hit.handle) {
                 dragOffset = { handle: hit.handle };
+            } else if (hit.obj.type === 'range') {
+                // whole-range move: keep both price offsets from the cursor
+                dragOffset = {
+                    handle: 0,
+                    dPrice1: hit.obj.price1 - priceAt(pos.y, range),
+                    dPrice2: hit.obj.price2 - priceAt(pos.y, range)
+                };
             } else {
                 // whole-line move: keep offsets from cursor
                 dragOffset = {
@@ -646,6 +735,14 @@ const Drawing = (() => {
                 type: 'hline',
                 price: priceAt(pos.y, range)
             };
+        } else if (tool === 'range') {
+            // Price Range: anchored at the click price; drag vertically to
+            // the other bound. Only the vertical position matters.
+            currentLine = {
+                type: 'range',
+                price1: priceAt(pos.y, range),
+                price2: null
+            };
         } else if (tool === 'rect' || tool === 'fib') {
             currentLine = {
                 type: tool,
@@ -676,9 +773,17 @@ const Drawing = (() => {
             if (line) {
                 if (line.type === 'hline') {
                     line.price = priceAt(pos.y, range) + dragOffset.dPrice1;
+                } else if (line.type === 'range' && dragOffset.handle === 0) {
+                    // drag both bounds together, keeping the range height
+                    line.price1 = priceAt(pos.y, range) + dragOffset.dPrice1;
+                    line.price2 = priceAt(pos.y, range) + dragOffset.dPrice2;
                 } else if (line.type === 'text') {
                     line.time = timeAt(pos.x);
                     line.price = priceAt(pos.y, range);
+                } else if (line.type === 'range') {
+                    // per-boundary drag: handle 1 = upper price, 2 = lower
+                    if (dragOffset.handle === 1) line.price1 = priceAt(pos.y, range);
+                    else if (dragOffset.handle === 2) line.price2 = priceAt(pos.y, range);
                 } else if (dragOffset.handle === 0) {
                     line.time1 = timeAt(pos.x) + dragOffset.dTime1;
                     line.price1 = priceAt(pos.y, range) + dragOffset.dPrice1;
@@ -714,6 +819,15 @@ const Drawing = (() => {
                     currentLine.id = 'H' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
                     lines.push(currentLine);
                     save();
+                } else if (currentLine.type === 'range') {
+                    currentLine.price2 = priceAt(pos.y, range);
+                    // keep only if the two bounds are actually distinct prices
+                    const dy = Math.abs(currentLine.price2 - currentLine.price1);
+                    if (dy > 0) {
+                        currentLine.id = 'G' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                        lines.push(currentLine);
+                        save();
+                    }
                 } else {
                     currentLine.time2 = timeAt(pos.x);
                     currentLine.price2 = priceAt(pos.y, range);
@@ -758,6 +872,18 @@ const Drawing = (() => {
                 if (line.price < range.min || line.price > range.max) continue;
                 const y = api.yForPrice(line.price, range);
                 if (Math.abs(pos.y - y) <= 5) return { id: line.id, handle: 0, obj: line };
+                continue;
+            }
+            if (line.type === 'range') {
+                // hit on either boundary line, or anywhere inside the band
+                const lo = Math.min(line.price1, line.price2);
+                const hi = Math.max(line.price1, line.price2);
+                if (hi < range.min || lo > range.max) continue;
+                const yLo = api.yForPrice(lo, range);
+                const yHi = api.yForPrice(hi, range);
+                if (Math.abs(pos.y - yHi) <= 5) return { id: line.id, handle: 1, obj: line };
+                if (Math.abs(pos.y - yLo) <= 5) return { id: line.id, handle: 2, obj: line };
+                if (pos.y > yHi && pos.y < yLo) return { id: line.id, handle: 0, obj: line };
                 continue;
             }
             const a = endPoint(line, 1, range);

@@ -94,6 +94,7 @@ const App = (() => {
                 if (o.type === 'hline') return [1, o.price];
                 if (o.type === 'rect') return [2, o.time1, o.price1, o.time2, o.price2];
                 if (o.type === 'fib') return [3, o.time1, o.price1, o.time2, o.price2];
+                if (o.type === 'range') return [4, o.price1, o.price2];
                 return [0, o.time1, o.price1, o.time2, o.price2];   // segment
             });
             return b64e(compact);
@@ -107,6 +108,7 @@ const App = (() => {
                     if (k === 1) return { type: 'hline', price: c[1] };
                     if (k === 2) return { type: 'rect', time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
                     if (k === 3) return { type: 'fib', time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
+                    if (k === 4) return { type: 'range', price1: c[1], price2: c[2] };
                     return { time1: c[1], price1: c[2], time2: c[3], price2: c[4] };
                 }).filter(o => o && (o.price != null || o.price1 != null));
             } catch (e) {
@@ -1259,11 +1261,13 @@ const App = (() => {
                     ? 'Level mode: click to place a horizontal line, drag to adjust'
                     : tool === 'rect'
                         ? 'Zone mode: click & drag to mark a range'
-                        : tool === 'fib'
-                            ? 'Fib fan: drag along a trend to fan out the levels'
-                            : tool === 'text'
-                                ? 'Note mode: click a point on the chart to label it'
-                                : 'Normal mode: drag to pan', 2000);
+                        : tool === 'range'
+                            ? 'Price Range: drag vertically to measure a price zone'
+                            : tool === 'fib'
+                                ? 'Fib fan: drag along a trend to fan out the levels'
+                                : tool === 'text'
+                                    ? 'Note mode: click a point on the chart to label it'
+                                    : 'Normal mode: drag to pan', 2000);
         });
 
         // Keyboard: Delete hovered line, Escape cancels drawing
